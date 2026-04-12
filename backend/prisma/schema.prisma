@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum KycStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum TradeType {
+  BUY
+  SELL
+}
+
+enum TradeStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  DEAD_LETTER
+}
+
+enum LedgerAccountType {
+  INVESTOR_WALLET
+  ATHLETE_POOL
+  DONATION_QUEUE
+  TOKENS_MINTED
+}
+
+enum LedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum StrategyType {
+  MOMENTUM
+  MEAN_REVERSION
+  NOISE
+  USER
+}
+
+enum WithdrawalStatus {
+  PENDING
+  PROCESSED
+}
+
+model Athlete {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String    @db.VarChar(255)
+  kycStatus   KycStatus @default(PENDING) @map("kyc_status")
+  bankAccount String    @map("bank_account") @db.VarChar(100)
+  kConstant   Decimal   @map("k_constant") @db.Decimal(20, 8)
+  pMid        Decimal   @map("p_mid") @db.Decimal(20, 8)
+  verified    Boolean   @default(false)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  token      Token?
+  trades     Trade[]
+  portfolios Portfolio[]
+
+  @@map("athletes")
+}
+
+model Token {
+  id            String   @id @default(uuid()) @db.Uuid
+  athleteId     String   @unique @map("athlete_id") @db.Uuid
+  currentSupply Decimal  @default(0) @map("current_supply") @db.Decimal(20, 8)
+  currentPrice  Decimal  @default(0) @map("current_price") @db.Decimal(20, 8)
+  poolBalance   Decimal  @default(0) @map("pool_balance") @db.Decimal(20, 8)
+  version       Int      @default(0)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+
+  @@map("tokens")
+}
+
+model Investor {
+  id            String   @id @default(uuid()) @db.Uuid
+  name          String   @db.VarChar(255)
+  email         String   @unique @db.VarChar(255)
+  passwordHash  String   @map("password_hash") @db.VarChar(255)
+  walletBalance Decimal  @default(0) @map("wallet_balance") @db.Decimal(20, 8)
+  linkedBank    String?  @map("linked_bank") @db.VarChar(100)
+  kycVerified   Boolean  @default(false) @map("kyc_verified")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  trades      Trade[]
+  portfolios  Portfolio[]
+  bots        Bot[]
+  withdrawals Withdrawal[]
+
+  @@map("investors")
+}
+
+model Trade {
+  id             String      @id @default(uuid()) @db.Uuid
+  investorId     String      @map("investor_id") @db.Uuid
+  athleteId      String      @map("athlete_id") @db.Uuid
+  type           TradeType
+  amountInr      Decimal     @map("amount_inr") @db.Decimal(20, 8)
+  tokens         Decimal     @db.Decimal(20, 8)
+  idempotencyKey String      @unique @map("idempotency_key") @db.Uuid
+  status         TradeStatus @default(PENDING)
+  poolDeposit    Decimal?    @map("pool_deposit") @db.Decimal(20, 8)
+  donationAmount Decimal?    @map("donation_amount") @db.Decimal(20, 8)
+  createdAt      DateTime    @default(now()) @map("created_at")
+
+  investor Investor @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  athlete  Athlete  @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+  ledger   Ledger[]
+
+  @@index([investorId])
+  @@index([athleteId])
+  @@map("trades")
+}
+
+model Ledger {
+  id             String            @id @default(uuid()) @db.Uuid
+  tradeId        String?           @map("trade_id") @db.Uuid
+  accountType    LedgerAccountType @map("account_type")
+  accountId      String            @map("account_id") @db.Uuid
+  direction      LedgerDirection
+  amount         Decimal           @db.Decimal(20, 8)
+  runningBalance Decimal           @map("running_balance") @db.Decimal(20, 8)
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  trade Trade? @relation(fields: [tradeId], references: [id], onDelete: Restrict)
+
+  @@index([accountType, accountId, createdAt])
+  @@map("ledger")
+}
+
+model Portfolio {
+  id          String   @id @default(uuid()) @db.Uuid
+  investorId  String   @map("investor_id") @db.Uuid
+  athleteId   String   @map("athlete_id") @db.Uuid
+  tokensHeld  Decimal  @default(0) @map("tokens_held") @db.Decimal(20, 8)
+  avgBuyPrice Decimal  @default(0) @map("avg_buy_price") @db.Decimal(20, 8)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  investor Investor @relation(fields: [investorId], references: [id], onDelete: Restrict)
+  athlete  Athlete  @relation(fields: [athleteId], references: [id], onDelete: Restrict)
+
+  @@unique([investorId, athleteId])
+  @@index([investorId])
+  @@map("portfolios")
+}
+
+model Bot {
+  id            String       @id @default(uuid()) @db.Uuid
+  ownerId       String?      @map("owner_id") @db.Uuid
+  strategyType  StrategyType @map("strategy_type")
+  config        Json
+  walletBalance Decimal      @default(0) @map("wallet_balance") @db.Decimal(20, 8)
+  isActive      Boolean      @default(true) @map("is_active")
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  owner Investor? @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+
+  @@map("bots")
+}
+
+model Withdrawal {
+  id          String           @id @default(uuid()) @db.Uuid
+  investorId  String           @map("investor_id") @db.Uuid
+  amount      Decimal          @db.Decimal(20, 8)
+  status      WithdrawalStatus @default(PENDING)
+  requestedAt DateTime         @default(now()) @map("requested_at")
+  processedAt DateTime?        @map("processed_at")
+
+  investor Investor @relation(fields: [investorId], references: [id], onDelete: Restrict)
+
+  @@index([investorId, status])
+  @@map("withdrawals")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  actorId     String   @map("actor_id") @db.Uuid
+  action      String
+  entityType  String   @map("entity_type")
+  beforeState Json?    @map("before_state")
+  afterState  Json?    @map("after_state")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([entityType, createdAt])
+  @@map("audit_log")
+}

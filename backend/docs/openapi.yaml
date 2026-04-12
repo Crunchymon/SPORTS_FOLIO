@@ -1,0 +1,282 @@
+openapi: 3.0.3
+info:
+  title: SportsFolio Backend MVP API
+  version: 0.1.0
+  description: Core API slice for investor onboarding, wallet, athletes, and trade flow.
+servers:
+  - url: http://localhost:3001
+paths:
+  /health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+
+  /auth/register:
+    post:
+      summary: Register investor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Created
+
+  /auth/login:
+    post:
+      summary: Login investor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authenticated
+
+  /auth/kyc/verify:
+    post:
+      summary: Verify KYC
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/KycRequest'
+      responses:
+        '200':
+          description: KYC verified
+
+  /wallet/deposit:
+    post:
+      summary: Deposit to wallet (1% fee)
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletDepositRequest'
+      responses:
+        '200':
+          description: Deposit successful
+
+  /wallet/withdraw:
+    post:
+      summary: Request withdrawal
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletWithdrawRequest'
+      responses:
+        '200':
+          description: Withdrawal queued
+
+  /wallet/balance:
+    get:
+      summary: Get wallet balance
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Current and pending balances
+
+  /athletes:
+    get:
+      summary: List athletes
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [market_cap, price, volume]
+      responses:
+        '200':
+          description: Athlete list
+
+  /athletes/{id}:
+    get:
+      summary: Get athlete details
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Athlete details
+
+  /trade/buy:
+    post:
+      summary: Buy athlete tokens
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: X-Idempotency-Key
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TradeBuyRequest'
+      responses:
+        '200':
+          description: Buy executed
+
+  /trade/sell:
+    post:
+      summary: Sell athlete tokens
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: X-Idempotency-Key
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TradeSellRequest'
+      responses:
+        '200':
+          description: Sell executed
+
+  /trade/history:
+    get:
+      summary: Get investor trade history
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: integer
+        - in: query
+          name: limit
+          schema:
+            type: integer
+        - in: query
+          name: athlete_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Trade history
+
+  /portfolio:
+    get:
+      summary: Get investor portfolio
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Portfolio snapshot
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+
+    KycRequest:
+      type: object
+      required: [pan_number, bank_account, bank_ifsc]
+      properties:
+        pan_number:
+          type: string
+        bank_account:
+          type: string
+        bank_ifsc:
+          type: string
+
+    WalletDepositRequest:
+      type: object
+      required: [amount, payment_reference]
+      properties:
+        amount:
+          type: string
+        payment_reference:
+          type: string
+
+    WalletWithdrawRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:
+          type: string
+
+    TradeBuyRequest:
+      type: object
+      required: [athlete_id, amount_inr]
+      properties:
+        athlete_id:
+          type: string
+          format: uuid
+        amount_inr:
+          type: string
+
+    TradeSellRequest:
+      type: object
+      required: [athlete_id, token_amount]
+      properties:
+        athlete_id:
+          type: string
+          format: uuid
+        token_amount:
+          type: string

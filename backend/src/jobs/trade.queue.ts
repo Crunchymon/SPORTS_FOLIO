@@ -21,7 +21,7 @@ type SellJob = {
 
 export type TradeJob = BuyJob | SellJob;
 
-const queueName = `${env.BULLMQ_QUEUE_PREFIX}:trades`;
+const queueName = `${env.BULLMQ_QUEUE_PREFIX}_trades`;
 
 const tradeQueue = new Queue<TradeJob>(queueName, {
   connection: createRedisConnection()

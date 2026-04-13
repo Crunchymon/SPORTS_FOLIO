@@ -20,7 +20,24 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    // Optionally handle global errors (e.g., 401 Unauthorized -> logout)
+    if (typeof window !== "undefined" && error?.response?.status === 401) {
+      const requestUrl = String(error?.config?.url ?? "");
+      const isAuthEndpoint =
+        requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register");
+
+      if (!isAuthEndpoint) {
+        localStorage.removeItem("auth_token");
+        localStorage.removeItem("auth_user");
+
+        const currentPath = window.location.pathname;
+        const isAuthPage = currentPath.startsWith("/login") || currentPath.startsWith("/signup");
+
+        if (!isAuthPage) {
+          window.location.assign("/login");
+        }
+      }
+    }
+
     return Promise.reject(error);
   }
 );

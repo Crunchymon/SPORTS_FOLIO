@@ -57,6 +57,7 @@ paths:
   /wallet/deposit:
     post:
       summary: Deposit to wallet (1% fee)
+      description: Requires auth. KYC is enforced only when `KYC_REQUIRED=true`.
       security:
         - BearerAuth: []
       requestBody:
@@ -72,6 +73,7 @@ paths:
   /wallet/withdraw:
     post:
       summary: Request withdrawal
+      description: Requires auth. KYC is enforced only when `KYC_REQUIRED=true`.
       security:
         - BearerAuth: []
       requestBody:
@@ -113,10 +115,17 @@ paths:
       responses:
         '200':
           description: Athlete list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AthleteListResponse'
+        '400':
+          description: Validation failed (for example, limit greater than 50)
 
   /athletes/{id}:
     get:
       summary: Get athlete details
+      description: Returns token snapshot and chart series. `price_history` includes the latest traded token price point for live graph updates.
       parameters:
         - in: path
           name: id
@@ -127,10 +136,15 @@ paths:
       responses:
         '200':
           description: Athlete details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AthleteDetailResponse'
 
   /trade/buy:
     post:
       summary: Buy athlete tokens
+      description: Requires auth. KYC is enforced only when `KYC_REQUIRED=true`.
       security:
         - BearerAuth: []
       parameters:
@@ -149,10 +163,13 @@ paths:
       responses:
         '200':
           description: Buy executed
+        '401':
+          description: Unauthorized or expired session
 
   /trade/sell:
     post:
       summary: Sell athlete tokens
+      description: Requires auth. KYC is enforced only when `KYC_REQUIRED=true`.
       security:
         - BearerAuth: []
       parameters:
@@ -171,6 +188,8 @@ paths:
       responses:
         '200':
           description: Sell executed
+        '401':
+          description: Unauthorized or expired session
 
   /trade/history:
     get:
@@ -280,3 +299,70 @@ components:
           format: uuid
         token_amount:
           type: string
+
+    AthleteToken:
+      type: object
+      properties:
+        current_price:
+          type: string
+        current_supply:
+          type: string
+        pool_balance:
+          type: string
+
+    AthleteListItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kyc_status:
+          type: string
+        token:
+          $ref: '#/components/schemas/AthleteToken'
+
+    AthleteListResponse:
+      type: object
+      properties:
+        athletes:
+          type: array
+          items:
+            $ref: '#/components/schemas/AthleteListItem'
+        total:
+          type: integer
+        page:
+          type: integer
+
+    PriceHistoryPoint:
+      type: object
+      properties:
+        sampled_at:
+          type: string
+          format: date-time
+        price:
+          type: string
+
+    AthleteDetail:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        kyc_status:
+          type: string
+        token:
+          $ref: '#/components/schemas/AthleteToken'
+        price_history:
+          type: array
+          items:
+            $ref: '#/components/schemas/PriceHistoryPoint'
+
+    AthleteDetailResponse:
+      type: object
+      properties:
+        athlete:
+          $ref: '#/components/schemas/AthleteDetail'

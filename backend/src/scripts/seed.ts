@@ -2,47 +2,118 @@ import bcrypt from "bcryptjs";
 import { KycStatus, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
+type AthleteSeedConfig = {
+  name: string;
+  bankAccount: string;
+  kConstant: string;
+  pMid: string;
+  basePrice: number;
+  trendPct: number;
+  volatilityPct: number;
+  phase: number;
+};
+
+const createSeededPriceHistory = (config: AthleteSeedConfig) => {
+  const points: Array<{ sampledAt: Date; price: Prisma.Decimal }> = [];
+  const now = new Date();
+
+  for (let day = 30; day >= 0; day -= 1) {
+    const progress = (30 - day) / 30;
+    const trend = 1 + config.trendPct * progress;
+    const waveA = Math.sin((day + config.phase) * 0.62) * config.volatilityPct;
+    const waveB = Math.cos((day + config.phase * 1.4) * 0.29) * (config.volatilityPct * 0.45);
+    const rawPrice = Math.max(config.basePrice * 0.55, config.basePrice * trend * (1 + waveA + waveB));
+
+    const sampledAt = new Date(now);
+    sampledAt.setUTCHours(12, 0, 0, 0);
+    sampledAt.setUTCDate(sampledAt.getUTCDate() - day);
+
+    points.push({
+      sampledAt,
+      price: new Prisma.Decimal(rawPrice.toFixed(8))
+    });
+  }
+
+  return points;
+};
+
 async function seedAthletes() {
-  const athletes = [
+  const athletes: AthleteSeedConfig[] = [
     {
       name: "Arjun Menon",
       bankAccount: "ATH001BANK",
       kConstant: "0.00800000",
-      pMid: "12.00000000"
+      pMid: "12.00000000",
+      basePrice: 72,
+      trendPct: 0.42,
+      volatilityPct: 0.06,
+      phase: 1.3
     },
     {
       name: "Rohan Kulkarni",
       bankAccount: "ATH002BANK",
       kConstant: "0.01200000",
-      pMid: "20.00000000"
+      pMid: "20.00000000",
+      basePrice: 81,
+      trendPct: 0.31,
+      volatilityPct: 0.055,
+      phase: 2.2
     }
   ];
 
   for (const athlete of athletes) {
     const existing = await prisma.athlete.findFirst({ where: { name: athlete.name } });
+    const athleteRecord = existing
+      ? await prisma.athlete.update({
+          where: { id: existing.id },
+          data: {
+            bankAccount: athlete.bankAccount,
+            kConstant: new Prisma.Decimal(athlete.kConstant),
+            pMid: new Prisma.Decimal(athlete.pMid),
+            kycStatus: KycStatus.VERIFIED,
+            verified: true
+          }
+        })
+      : await prisma.athlete.create({
+          data: {
+            name: athlete.name,
+            bankAccount: athlete.bankAccount,
+            kConstant: new Prisma.Decimal(athlete.kConstant),
+            pMid: new Prisma.Decimal(athlete.pMid),
+            kycStatus: KycStatus.VERIFIED,
+            verified: true
+          }
+        });
 
-    if (existing) {
-      continue;
-    }
+    const priceHistory = createSeededPriceHistory(athlete);
+    const latestPrice = priceHistory[priceHistory.length - 1].price;
+    const currentSupply = Math.sqrt(
+      Number(latestPrice.toString()) / Number(athlete.kConstant)
+    );
+    const poolBalance = Number(latestPrice.toString()) * currentSupply * 1.6;
 
-    const created = await prisma.athlete.create({
-      data: {
-        name: athlete.name,
-        bankAccount: athlete.bankAccount,
-        kConstant: new Prisma.Decimal(athlete.kConstant),
-        pMid: new Prisma.Decimal(athlete.pMid),
-        kycStatus: KycStatus.VERIFIED,
-        verified: true
+    await prisma.token.upsert({
+      where: { athleteId: athleteRecord.id },
+      update: {
+        currentSupply: new Prisma.Decimal(currentSupply.toFixed(8)),
+        currentPrice: latestPrice,
+        poolBalance: new Prisma.Decimal(poolBalance.toFixed(8))
+      },
+      create: {
+        athleteId: athleteRecord.id,
+        currentSupply: new Prisma.Decimal(currentSupply.toFixed(8)),
+        currentPrice: latestPrice,
+        poolBalance: new Prisma.Decimal(poolBalance.toFixed(8))
       }
     });
 
-    await prisma.token.create({
-      data: {
-        athleteId: created.id,
-        currentSupply: new Prisma.Decimal("0"),
-        currentPrice: new Prisma.Decimal("0"),
-        poolBalance: new Prisma.Decimal("0")
-      }
+    await prisma.priceHistory.deleteMany({ where: { athleteId: athleteRecord.id } });
+    await prisma.priceHistory.createMany({
+      data: priceHistory.map((point) => ({
+        athleteId: athleteRecord.id,
+        sampledAt: point.sampledAt,
+        price: point.price
+      }))
     });
   }
 }

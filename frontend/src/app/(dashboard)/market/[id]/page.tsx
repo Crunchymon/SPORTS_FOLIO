@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -18,54 +18,236 @@ import {
   ResponsiveContainer
 } from "recharts";
 
-// Generate fake price history for the graph
-const generateGraphData = (currentPrice: number) => {
-  const data = [];
-  let price = currentPrice * 0.5; // Start lower
-  for (let i = 30; i >= 0; i--) {
-    const change = (Math.random() - 0.4) * (currentPrice * 0.1); 
-    price = price + change;
-    data.push({
-      day: `-${i}d`,
-      price: Math.max(10, price).toFixed(2),
-    });
+type AthleteDetailApi = {
+  id: string;
+  name: string;
+  kyc_status: string;
+  token?: {
+    current_price?: string;
+    current_supply?: string;
+    pool_balance?: string;
+  };
+  price_history?: Array<{
+    sampled_at: string;
+    price: string;
+  }>;
+};
+
+type ChartPoint = {
+  day: string;
+  price: number;
+};
+
+type TradeExecutionResponse = {
+  new_token_price?: string;
+  new_supply?: string;
+};
+
+type WalletBalanceApi = {
+  balance?: string;
+};
+
+type PortfolioApiRow = {
+  athlete_id: string;
+  tokens_held: string;
+};
+
+type AthleteDetailView = {
+  id: string;
+  name: string;
+  kycStatus: string;
+  currentPrice: number;
+  totalSupply: number;
+  poolBalance: number;
+  priceHistory: ChartPoint[];
+};
+
+const toChartPoints = (prices: number[]): ChartPoint[] => {
+  const lastIndex = Math.max(prices.length - 1, 0);
+  return prices.map((price, index) => ({
+    day: `-${lastIndex - index}d`,
+    price
+  }));
+};
+
+const parsePositive = (value: string) => {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return null;
   }
-  // Ensure the last point matches current exactly
-  data[data.length - 1].price = parseFloat(currentPrice as any).toFixed(2);
-  return data;
+
+  return parsed;
+};
+
+const formatInputValue = (value: number, decimals: number) => {
+  const fixed = value.toFixed(decimals);
+  return fixed.replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+};
+
+const normalizeAthlete = (data: AthleteDetailApi): AthleteDetailView => {
+  const history = Array.isArray(data.price_history) ? data.price_history : [];
+  const currentPrice = Number.parseFloat(data.token?.current_price ?? "0") || 0;
+  const historyPrices = history
+    .map((point) => Number.parseFloat(point.price) || 0)
+    .filter((price) => price > 0);
+
+  const lastHistoryPrice = historyPrices[historyPrices.length - 1] ?? 0;
+  if (currentPrice > 0 && Math.abs(lastHistoryPrice - currentPrice) > 0.0000001) {
+    historyPrices.push(currentPrice);
+  }
+
+  return {
+    id: data.id,
+    name: data.name,
+    kycStatus: data.kyc_status,
+    currentPrice,
+    totalSupply: Number.parseFloat(data.token?.current_supply ?? "0") || 0,
+    poolBalance: Number.parseFloat(data.token?.pool_balance ?? "0") || 0,
+    priceHistory: toChartPoints(historyPrices)
+  };
 };
 
 export default function AthleteDetailPage() {
   const params = useParams();
   const id = params.id as string;
 
-  const [athlete, setAthlete] = useState<any>(null);
+  const [athlete, setAthlete] = useState<AthleteDetailView | null>(null);
   const [loading, setLoading] = useState(true);
   
   // Trade state
   const [tradeMode, setTradeMode] = useState<"buy" | "sell">("buy");
-  const [tradeAmount, setTradeAmount] = useState("");
+  const [amountInr, setAmountInr] = useState("");
+  const [tokenAmount, setTokenAmount] = useState("");
+  const [lastEditedField, setLastEditedField] = useState<"inr" | "token" | null>(null);
   const [tradeLoading, setTradeLoading] = useState(false);
   const [tradeError, setTradeError] = useState("");
   const [tradeSuccess, setTradeSuccess] = useState("");
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<ChartPoint[]>([]);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [heldTokens, setHeldTokens] = useState(0);
+
+  const holdingsValue = useMemo(
+    () => heldTokens * (athlete?.currentPrice ?? 0),
+    [heldTokens, athlete?.currentPrice]
+  );
+
+  const maxBuyTokens = useMemo(() => {
+    const currentPrice = athlete?.currentPrice ?? 0;
+    if (currentPrice <= 0) {
+      return 0;
+    }
+
+    return walletBalance / currentPrice;
+  }, [walletBalance, athlete?.currentPrice]);
+
+  const syncFromInr = (nextInr: string, markAsEdited = true) => {
+    if (markAsEdited) {
+      setLastEditedField("inr");
+    }
+
+    setAmountInr(nextInr);
+
+    const parsedInr = parsePositive(nextInr);
+    if (parsedInr === null || !athlete || athlete.currentPrice <= 0 || nextInr.trim() === "") {
+      setTokenAmount("");
+      return;
+    }
+
+    setTokenAmount(formatInputValue(parsedInr / athlete.currentPrice, 6));
+  };
+
+  const syncFromTokens = (nextTokens: string, markAsEdited = true) => {
+    if (markAsEdited) {
+      setLastEditedField("token");
+    }
+
+    setTokenAmount(nextTokens);
+
+    const parsedTokens = parsePositive(nextTokens);
+    if (parsedTokens === null || !athlete || athlete.currentPrice <= 0 || nextTokens.trim() === "") {
+      setAmountInr("");
+      return;
+    }
+
+    setAmountInr(formatInputValue(parsedTokens * athlete.currentPrice, 2));
+  };
+
+  const appendLivePrice = (nextPrice: number) => {
+    if (!Number.isFinite(nextPrice) || nextPrice <= 0) {
+      return;
+    }
+
+    setChartData((prev) => {
+      const currentPrices = prev
+        .map((point) => point.price)
+        .filter((price) => Number.isFinite(price) && price > 0);
+
+      return toChartPoints([...currentPrices, nextPrice].slice(-60));
+    });
+  };
 
   useEffect(() => {
-    const fetchAthlete = async () => {
+    if (!athlete || athlete.currentPrice <= 0) {
+      return;
+    }
+
+    if (lastEditedField === "inr" && amountInr.trim() !== "") {
+      syncFromInr(amountInr, false);
+      return;
+    }
+
+    if (lastEditedField === "token" && tokenAmount.trim() !== "") {
+      syncFromTokens(tokenAmount, false);
+    }
+  }, [athlete?.currentPrice]);
+
+  const fetchAthlete = async () => {
+    const res = await api.get(`/athletes/${id}`);
+    const payload = (res.data?.athlete ?? res.data) as AthleteDetailApi;
+    const normalized = normalizeAthlete(payload);
+
+    setAthlete(normalized);
+    setChartData(normalized.priceHistory);
+  };
+
+  const fetchAccountSnapshot = async () => {
+    try {
+      const [walletRes, portfolioRes] = await Promise.all([
+        api.get("/wallet/balance"),
+        api.get("/portfolio")
+      ]);
+
+      const wallet = (walletRes.data ?? {}) as WalletBalanceApi;
+      const walletValue = Number.parseFloat(wallet.balance ?? "0");
+      setWalletBalance(Number.isFinite(walletValue) ? walletValue : 0);
+
+      const rows = Array.isArray(portfolioRes.data?.portfolio)
+        ? (portfolioRes.data.portfolio as PortfolioApiRow[])
+        : [];
+
+      const currentHolding = rows.find((row) => row.athlete_id === id);
+      const tokens = Number.parseFloat(currentHolding?.tokens_held ?? "0");
+      setHeldTokens(Number.isFinite(tokens) ? tokens : 0);
+    } catch (error) {
+      console.error("Failed to load wallet/holding snapshot", error);
+      setWalletBalance(0);
+      setHeldTokens(0);
+    }
+  };
+
+  useEffect(() => {
+    const fetchPageData = async () => {
       try {
-        const res = await api.get(`/athletes/${id}`);
-        const data = res.data.athlete || res.data;
-        setAthlete(data);
-        
-        const cPrice = parseFloat(data.currentPrice || '100');
-        setChartData(generateGraphData(cPrice));
+        await Promise.all([fetchAthlete(), fetchAccountSnapshot()]);
       } catch (err) {
         console.error(err);
       } finally {
         setLoading(false);
       }
     };
-    if (id) fetchAthlete();
+    if (id) {
+      fetchPageData();
+    }
   }, [id]);
 
   const handleTrade = async (e: React.FormEvent) => {
@@ -75,30 +257,68 @@ export default function AthleteDetailPage() {
     setTradeLoading(true);
 
     try {
+      const parsedInr = parsePositive(amountInr);
+      const parsedTokens = parsePositive(tokenAmount);
+
+      if (parsedInr === null || parsedTokens === null || parsedInr <= 0 || parsedTokens <= 0) {
+        throw new Error("Please enter a valid INR amount and token quantity.");
+      }
+
+      if (tradeMode === "buy" && parsedInr > walletBalance) {
+        throw new Error("Entered INR amount is greater than available wallet balance.");
+      }
+
+      if (tradeMode === "sell" && parsedTokens > heldTokens) {
+        throw new Error("Entered token quantity exceeds your holdings for this athlete.");
+      }
+
       const idempotencyKey = crypto.randomUUID();
       
+      let tradeResponse;
+
       if (tradeMode === "buy") {
-        await api.post(
+        tradeResponse = await api.post(
           "/trade/buy",
-          { athlete_id: id, amount_inr: tradeAmount },
+          { athlete_id: id, amount_inr: formatInputValue(parsedInr, 8) },
           { headers: { "X-Idempotency-Key": idempotencyKey } }
         );
-        setTradeSuccess(`Successfully bought ₹${tradeAmount} worth of tokens!`);
+        setTradeSuccess(`Successfully bought ~${formatInputValue(parsedTokens, 6)} tokens.`);
       } else {
-        await api.post(
+        tradeResponse = await api.post(
           "/trade/sell",
-          { athlete_id: id, token_amount: tradeAmount },
+          { athlete_id: id, token_amount: formatInputValue(parsedTokens, 8) },
           { headers: { "X-Idempotency-Key": idempotencyKey } }
         );
-        setTradeSuccess(`Successfully sold ${tradeAmount} tokens!`);
+        setTradeSuccess(`Successfully sold ${formatInputValue(parsedTokens, 6)} tokens.`);
+      }
+
+      const tradePayload = (tradeResponse?.data ?? {}) as TradeExecutionResponse;
+      const livePrice = Number.parseFloat(tradePayload.new_token_price ?? "0");
+      const liveSupply = Number.parseFloat(tradePayload.new_supply ?? "0");
+
+      if (livePrice > 0) {
+        setAthlete((prev) => {
+          if (!prev) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            currentPrice: livePrice,
+            totalSupply: liveSupply > 0 ? liveSupply : prev.totalSupply
+          };
+        });
+
+        appendLivePrice(livePrice);
       }
       
-      // Refresh athlete price and data
-      const refreshRes = await api.get(`/athletes/${id}`);
-      setAthlete(refreshRes.data.athlete || refreshRes.data);
-      setTradeAmount("");
+      // Refresh athlete, wallet and holdings after settlement
+      await Promise.all([fetchAthlete(), fetchAccountSnapshot()]);
+      setAmountInr("");
+      setTokenAmount("");
+      setLastEditedField(null);
     } catch (err: any) {
-      setTradeError(err.response?.data?.error || "Trade failed. Please try again.");
+      setTradeError(err.response?.data?.error || err.message || "Trade failed. Please try again.");
     } finally {
       setTradeLoading(false);
     }
@@ -119,36 +339,42 @@ export default function AthleteDetailPage() {
           <div>
             <div className="flex items-center gap-3 mb-2">
               <h1 className="text-3xl font-bold">{athlete.name}</h1>
-              <span className="bg-primary-50 text-primary-700 px-3 py-1 rounded-full text-sm font-bold tracking-wide">
-                {athlete.sport}
+              <span className={`px-3 py-1 rounded-full text-sm font-bold tracking-wide ${
+                athlete.kycStatus === "VERIFIED"
+                  ? "bg-green-50 text-green-700"
+                  : athlete.kycStatus === "REJECTED"
+                    ? "bg-red-50 text-red-700"
+                    : "bg-amber-50 text-amber-700"
+              }`}>
+                {athlete.kycStatus}
               </span>
             </div>
-            <p className="text-gray-500 max-w-2xl">{athlete.bio || "No bio available."}</p>
+            <p className="text-gray-500 max-w-2xl">Live athlete token metrics and trade panel.</p>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <Card>
               <CardContent className="p-4">
                 <div className="text-sm text-gray-500 mb-1">Current Price</div>
-                <div className="text-xl font-bold font-mono">₹{parseFloat(athlete.currentPrice || '0').toFixed(2)}</div>
+                <div className="text-xl font-bold font-mono">₹{athlete.currentPrice.toFixed(2)}</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <div className="text-sm text-gray-500 mb-1">Total Supply</div>
-                <div className="text-xl font-bold font-mono">{parseFloat(athlete.totalSupply || '0').toFixed(0)}</div>
+                <div className="text-xl font-bold font-mono">{athlete.totalSupply.toFixed(0)}</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <div className="text-sm text-gray-500 mb-1">Market Cap</div>
-                <div className="text-xl font-bold font-mono">₹{((parseFloat(athlete.currentPrice || '0') * parseFloat(athlete.totalSupply || '0')) || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
+                <div className="text-xl font-bold font-mono">₹{(athlete.currentPrice * athlete.totalSupply).toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <div className="text-sm text-gray-500 mb-1">Volume (24h)</div>
-                <div className="text-xl font-bold font-mono">₹{parseFloat(athlete.virtualReserveB || '0').toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
+                <div className="text-xl font-bold font-mono">₹{athlete.poolBalance.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
               </CardContent>
             </Card>
           </div>
@@ -156,29 +382,42 @@ export default function AthleteDetailPage() {
           <Card className="border-gray-200">
             <CardHeader>
               <CardTitle>Price History</CardTitle>
-              <CardDescription>30 day simulated performance</CardDescription>
+              <CardDescription>30 day price movement from backend history</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="h-[300px] w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
-                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
-                    <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(val) => `₹${val}`} />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                      formatter={(value: any) => [`₹${value}`, 'Price']}
-                    />
-                    <Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorPrice)" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+              {chartData.length > 0 ? (
+                <div className="h-[300px] w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData} margin={{ top: 10, right: 0, left: -20, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="colorPrice" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.3}/>
+                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e5e7eb" />
+                      <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} />
+                      <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#6b7280' }} tickFormatter={(val) => `₹${val}`} />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        formatter={(value) => {
+                          const numericValue =
+                            typeof value === "number"
+                              ? value
+                              : Number.parseFloat(String(value ?? 0));
+
+                          return [`₹${numericValue.toFixed(2)}`, "Price"];
+                        }}
+                      />
+                      <Area type="monotone" dataKey="price" stroke="#4f46e5" strokeWidth={3} fillOpacity={1} fill="url(#colorPrice)" />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <div className="h-[300px] w-full rounded-xl border border-dashed border-gray-200 bg-gray-50 text-sm text-gray-500 flex items-center justify-center">
+                  No price history available yet.
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -222,24 +461,62 @@ export default function AthleteDetailPage() {
                 </div>
               )}
 
+              <div className="mb-4 bg-gray-50 p-3 rounded-md text-sm text-gray-600 space-y-2">
+                <div className="flex justify-between">
+                  <span>Wallet Balance</span>
+                  <span className="font-mono font-semibold text-gray-900">
+                    ₹{walletBalance.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Your Holdings</span>
+                  <span className="font-mono font-semibold text-gray-900">
+                    {heldTokens.toFixed(4)} TOK
+                  </span>
+                </div>
+                <div className="flex justify-between border-t pt-2">
+                  <span>Holding Value</span>
+                  <span className="font-mono font-semibold text-gray-900">
+                    ₹{holdingsValue.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
               <form onSubmit={handleTrade} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {tradeMode === "buy" ? "Amount (INR)" : "Amount (Tokens)"}
-                  </label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Amount (INR)</label>
                   <div className="relative">
                     <Input
                       type="number"
-                      step={tradeMode === "buy" ? "1" : "0.01"}
-                      min={tradeMode === "buy" ? "10" : "0.01"}
+                      step="0.01"
+                      min="0"
                       required
-                      placeholder={tradeMode === "buy" ? "e.g. 500" : "e.g. 5.5"}
-                      value={tradeAmount}
-                      onChange={(e) => setTradeAmount(e.target.value)}
+                      placeholder="e.g. 500"
+                      value={amountInr}
+                      onChange={(e) => syncFromInr(e.target.value)}
                       className="text-lg"
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
-                      {tradeMode === "buy" ? "₹" : "TOK"}
+                      ₹
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tokens (TOK)</label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      step="0.000001"
+                      min="0"
+                      required
+                      placeholder="e.g. 5.5"
+                      value={tokenAmount}
+                      onChange={(e) => syncFromTokens(e.target.value)}
+                      className="text-lg"
+                    />
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">
+                      TOK
                     </div>
                   </div>
                 </div>
@@ -247,19 +524,27 @@ export default function AthleteDetailPage() {
                 <div className="bg-gray-50 p-3 rounded-md text-sm text-gray-600 space-y-2">
                   <div className="flex justify-between">
                     <span>Est. Price / Token</span>
-                    <span className="font-mono font-medium text-gray-900">₹{parseFloat(athlete.currentPrice || '0').toFixed(2)}</span>
+                    <span className="font-mono font-medium text-gray-900">₹{athlete.currentPrice.toFixed(2)}</span>
                   </div>
-                  {tradeAmount && athlete.currentPrice && (
+                  {amountInr && tokenAmount && athlete.currentPrice > 0 && (
                     <div className="flex justify-between border-t pt-2 mt-2">
-                      <span>You will {tradeMode === "buy" ? "receive approx." : "receive approx."}</span>
+                      <span>{tradeMode === "buy" ? "Approx. tokens to receive" : "Approx. INR to receive"}</span>
                       <span className="font-mono font-bold text-gray-900">
                         {tradeMode === "buy" 
-                          ? `~${(parseFloat(tradeAmount) / parseFloat(athlete.currentPrice)).toFixed(4)} TOK` 
-                          : `~₹${(parseFloat(tradeAmount) * parseFloat(athlete.currentPrice)).toFixed(2)}`
+                          ? `~${Number.parseFloat(tokenAmount || "0").toFixed(4)} TOK` 
+                          : `~₹${Number.parseFloat(amountInr || "0").toFixed(2)}`
                         }
                       </span>
                     </div>
                   )}
+                  <div className="flex justify-between border-t pt-2 mt-2">
+                    <span>{tradeMode === "buy" ? "Max Buy Capacity" : "Max Sell Capacity"}</span>
+                    <span className="font-mono font-medium text-gray-900">
+                      {tradeMode === "buy"
+                        ? `${maxBuyTokens.toFixed(4)} TOK`
+                        : `${heldTokens.toFixed(4)} TOK`}
+                    </span>
+                  </div>
                 </div>
 
                 <Button 

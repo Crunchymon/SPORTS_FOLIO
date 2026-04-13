@@ -72,7 +72,10 @@ export class AuthService {
         kycVerified: investor.kycVerified
       },
       env.JWT_SECRET,
-      { expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"] }
+      {
+        expiresIn: env.JWT_EXPIRES_IN as SignOptions["expiresIn"],
+        subject: investor.id
+      }
     );
 
     return {

@@ -1,12 +1,13 @@
 import { NextFunction, Request, Response } from "express";
-import jwt from "jsonwebtoken";
+import jwt, { JsonWebTokenError, TokenExpiredError } from "jsonwebtoken";
 import { env } from "../../config/env";
 import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../utils/errors";
 
 type JwtPayload = {
-  investorId: string;
-  email: string;
+  investorId?: string;
+  sub?: string;
+  email?: string;
 };
 
 export const authMiddleware = async (req: Request, _res: Response, next: NextFunction) => {
@@ -18,12 +19,24 @@ export const authMiddleware = async (req: Request, _res: Response, next: NextFun
     }
 
     const token = authHeader.replace("Bearer ", "").trim();
-    const payload = jwt.verify(token, env.JWT_SECRET) as JwtPayload;
+    const decoded = jwt.verify(token, env.JWT_SECRET);
 
-    const investor = await prisma.investor.findUnique({ where: { id: payload.investorId } });
+    if (!decoded || typeof decoded !== "object") {
+      throw new ApiError(401, "Invalid authentication token");
+    }
+
+    const payload = decoded as JwtPayload;
+    const investorId =
+      payload.investorId ?? (typeof payload.sub === "string" ? payload.sub : undefined);
+
+    if (!investorId) {
+      throw new ApiError(401, "Invalid authentication token");
+    }
+
+    const investor = await prisma.investor.findUnique({ where: { id: investorId } });
 
     if (!investor) {
-      throw new ApiError(401, "Invalid token subject");
+      throw new ApiError(401, "Session expired. Please sign in again.");
     }
 
     req.user = {
@@ -34,6 +47,14 @@ export const authMiddleware = async (req: Request, _res: Response, next: NextFun
 
     next();
   } catch (error) {
+    if (error instanceof TokenExpiredError) {
+      return next(new ApiError(401, "Session expired. Please sign in again."));
+    }
+
+    if (error instanceof JsonWebTokenError) {
+      return next(new ApiError(401, "Invalid authentication token"));
+    }
+
     next(error);
   }
 };

@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { 
   Sparkles, 
   TrendingUp, 
@@ -14,7 +16,130 @@ import {
   LineChart
 } from "lucide-react";
 
+type LandingAthlete = {
+  id: string;
+  name: string;
+  token?: {
+    current_price?: string;
+    current_supply?: string;
+  };
+};
+
+type AthleteDetailHistoryResponse = {
+  athlete?: {
+    price_history?: Array<{
+      price?: string;
+      sampled_at?: string;
+    }>;
+  };
+};
+
+const parseAmount = (value?: string) => {
+  const parsed = Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getInitials = (name: string) => {
+  const words = name.trim().split(/\s+/);
+  if (words.length === 0) {
+    return "AT";
+  }
+
+  return words.slice(0, 2).map((word) => word[0]?.toUpperCase() ?? "").join("");
+};
+
 export default function LandingPage() {
+  const [previewAthletes, setPreviewAthletes] = useState<LandingAthlete[]>([]);
+  const [athleteCount, setAthleteCount] = useState(0);
+  const [previewSeries, setPreviewSeries] = useState<number[]>([]);
+
+  useEffect(() => {
+    const loadPreview = async () => {
+      try {
+        const response = await api.get("/athletes?sort=market_cap&limit=2");
+        const rows = Array.isArray(response.data?.athletes)
+          ? (response.data.athletes as LandingAthlete[])
+          : [];
+
+        setPreviewAthletes(rows);
+        setAthleteCount(Number(response.data?.total ?? rows.length));
+
+        if (rows.length > 0 && rows[0].id) {
+          try {
+            const detailResponse = await api.get(`/athletes/${rows[0].id}`);
+            const detailPayload = detailResponse.data as AthleteDetailHistoryResponse;
+            const history = Array.isArray(detailPayload.athlete?.price_history)
+              ? detailPayload.athlete?.price_history
+              : [];
+
+            const series = history
+              .map((point) => parseAmount(point.price))
+              .filter((value) => value > 0)
+              .slice(-20);
+
+            setPreviewSeries(series);
+          } catch (detailError) {
+            console.error("Failed to load landing chart history", detailError);
+            setPreviewSeries([]);
+          }
+        }
+      } catch (error) {
+        console.error("Failed to load landing preview", error);
+      }
+    };
+
+    loadPreview();
+  }, []);
+
+  const totalPreviewValue = useMemo(
+    () =>
+      previewAthletes.reduce((sum, athlete) => {
+        const price = parseAmount(athlete.token?.current_price);
+        const supply = parseAmount(athlete.token?.current_supply);
+        return sum + price * supply;
+      }, 0),
+    [previewAthletes]
+  );
+
+  const previewGraphPoints = useMemo(() => {
+    if (previewSeries.length >= 2) {
+      return previewSeries;
+    }
+
+    const fallback = previewAthletes
+      .map((athlete) => parseAmount(athlete.token?.current_price))
+      .filter((value) => value > 0);
+
+    return fallback.length >= 2 ? fallback : [];
+  }, [previewAthletes, previewSeries]);
+
+  const previewLinePath = useMemo(() => {
+    if (previewGraphPoints.length < 2) {
+      return "";
+    }
+
+    const min = Math.min(...previewGraphPoints);
+    const max = Math.max(...previewGraphPoints);
+    const range = Math.max(max - min, 1);
+
+    return previewGraphPoints
+      .map((value, index) => {
+        const x = (index / (previewGraphPoints.length - 1)) * 100;
+        const normalized = (value - min) / range;
+        const y = 90 - normalized * 70;
+        return `${index === 0 ? "M" : "L"}${x.toFixed(2)},${y.toFixed(2)}`;
+      })
+      .join(" ");
+  }, [previewGraphPoints]);
+
+  const previewAreaPath = useMemo(() => {
+    if (!previewLinePath) {
+      return "";
+    }
+
+    return `${previewLinePath} L100,100 L0,100 Z`;
+  }, [previewLinePath]);
+
   return (
     <div className="min-h-screen bg-slate-50 selection:bg-indigo-100 font-sans text-slate-900 overflow-x-hidden">
       {/* Global Background Elements */}
@@ -115,59 +240,56 @@ export default function LandingPage() {
                   <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-sm flex flex-col md:flex-row justify-between items-end gap-6">
                     <div>
                       <div className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-2">Total Value</div>
-                      <div className="text-4xl font-black text-slate-800 tracking-tight">₹1,24,500<span className="text-xl text-slate-400">.00</span></div>
+                      <div className="text-4xl font-black text-slate-800 tracking-tight">₹{totalPreviewValue.toLocaleString("en-IN", { maximumFractionDigits: 0 })}<span className="text-xl text-slate-400">.00</span></div>
                       <div className="flex items-center gap-1.5 mt-3 text-green-600 bg-green-50 w-fit px-2.5 py-1 rounded-md font-bold text-sm">
                         <ArrowUpRight className="w-4 h-4" />
-                        +12.4% (₹15,400)
+                        {previewAthletes.length} live athletes loaded
                       </div>
                     </div>
                     
-                    {/* Simulated SVG Graph */}
                     <div className="h-24 w-full md:w-64 relative">
-                      <svg className="absolute inset-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 100 100">
-                        <defs>
-                          <linearGradient id="chartG" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.2"/>
-                            <stop offset="100%" stopColor="#4f46e5" stopOpacity="0"/>
-                          </linearGradient>
-                        </defs>
-                        <path d="M0,100 L0,70 Q10,80 20,60 T40,40 T60,50 T80,20 T100,10 L100,100 Z" fill="url(#chartG)" />
-                        <path d="M0,70 Q10,80 20,60 T40,40 T60,50 T80,20 T100,10" fill="none" stroke="#4f46e5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
+                      {previewLinePath ? (
+                        <svg className="absolute inset-0 h-full w-full" preserveAspectRatio="none" viewBox="0 0 100 100">
+                          <defs>
+                            <linearGradient id="chartG" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#4f46e5" stopOpacity="0.2"/>
+                              <stop offset="100%" stopColor="#4f46e5" stopOpacity="0"/>
+                            </linearGradient>
+                          </defs>
+                          <path d={previewAreaPath} fill="url(#chartG)" />
+                          <path d={previewLinePath} fill="none" stroke="#4f46e5" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      ) : (
+                        <div className="absolute inset-0 rounded-lg border border-dashed border-slate-200 bg-slate-50 text-[11px] text-slate-400 flex items-center justify-center">
+                          Loading trend
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   {/* Athlete Holdings Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     {/* Card 1 */}
-                     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.02)] flex items-center justify-between">
-                       <div className="flex items-center gap-4">
-                         <div className="w-12 h-12 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-lg">VK</div>
-                         <div>
-                           <div className="font-bold text-slate-800">Virat K.</div>
-                           <div className="text-sm text-slate-400 font-medium">Cricket</div>
-                         </div>
-                       </div>
-                       <div className="text-right">
-                         <div className="font-bold text-slate-800">50 TOK</div>
-                         <div className="text-sm font-bold text-green-500">₹45.00</div>
-                       </div>
-                     </div>
-                     
-                     {/* Card 2 */}
-                     <div className="bg-white p-5 rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.02)] flex items-center justify-between">
-                       <div className="flex items-center gap-4">
-                         <div className="w-12 h-12 rounded-full bg-sky-100 text-sky-700 flex items-center justify-center font-bold text-lg">LM</div>
-                         <div>
-                           <div className="font-bold text-slate-800">Lionel M.</div>
-                           <div className="text-sm text-slate-400 font-medium">Football</div>
-                         </div>
-                       </div>
-                       <div className="text-right">
-                         <div className="font-bold text-slate-800">120 TOK</div>
-                         <div className="text-sm font-bold text-green-500">₹1,204.00</div>
-                       </div>
-                     </div>
+                    {previewAthletes.length > 0 ? previewAthletes.map((athlete, index) => (
+                      <div key={athlete.id} className="bg-white p-5 rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.02)] flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg ${index % 2 === 0 ? "bg-indigo-100 text-indigo-700" : "bg-sky-100 text-sky-700"}`}>
+                            {getInitials(athlete.name)}
+                          </div>
+                          <div>
+                            <div className="font-bold text-slate-800">{athlete.name}</div>
+                            <div className="text-sm text-slate-400 font-medium">Live market data</div>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-bold text-slate-800">{parseAmount(athlete.token?.current_supply).toFixed(0)} TOK</div>
+                          <div className="text-sm font-bold text-green-500">₹{parseAmount(athlete.token?.current_price).toFixed(2)}</div>
+                        </div>
+                      </div>
+                    )) : (
+                      <div className="sm:col-span-2 bg-white p-5 rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.02)] text-sm text-slate-500">
+                        Loading live market snapshot...
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -191,7 +313,7 @@ export default function LandingPage() {
                 <div className="text-sm font-bold text-slate-500 mt-2 uppercase tracking-wider">Traded Volume</div>
               </div>
               <div className="flex flex-col items-center">
-                <div className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight">50+</div>
+                <div className="text-4xl md:text-5xl font-black text-slate-900 tracking-tight">{athleteCount.toLocaleString("en-IN")}</div>
                 <div className="text-sm font-bold text-slate-500 mt-2 uppercase tracking-wider">Athletes</div>
               </div>
               <div className="flex flex-col items-center">

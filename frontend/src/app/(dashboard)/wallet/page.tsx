@@ -7,8 +7,31 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AlertCircle, Wallet } from "lucide-react";
 
+type WalletBalanceApi = {
+  balance?: string;
+  pending_withdrawals?: string;
+  current_balance?: string;
+  pending_withdrawal_balance?: string;
+};
+
+type WalletBalanceView = {
+  available: number;
+  pending: number;
+};
+
+const parseAmount = (value?: string) => {
+  const parsed = Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatAmount = (value: number) =>
+  value.toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
+
 export default function WalletPage() {
-  const [balance, setBalance] = useState<any>(null);
+  const [balance, setBalance] = useState<WalletBalanceView>({ available: 0, pending: 0 });
   const [loading, setLoading] = useState(true);
 
   const [depositAmount, setDepositAmount] = useState("");
@@ -22,7 +45,12 @@ export default function WalletPage() {
   const fetchBalance = async () => {
     try {
       const res = await api.get("/wallet/balance");
-      setBalance(res.data.balance || res.data);
+      const payload = (res.data ?? {}) as WalletBalanceApi;
+
+      setBalance({
+        available: parseAmount(payload.balance ?? payload.current_balance),
+        pending: parseAmount(payload.pending_withdrawals ?? payload.pending_withdrawal_balance)
+      });
     } catch (err) {
       console.error(err);
     } finally {
@@ -102,9 +130,9 @@ export default function WalletPage() {
               <Wallet className="h-6 w-6 text-primary-600" />
             </CardHeader>
             <CardContent>
-              <div className="text-4xl font-bold text-gray-900">₹{balance?.current_balance || "0.00"}</div>
+              <div className="text-4xl font-bold text-gray-900">₹{formatAmount(balance.available)}</div>
               <p className="text-sm text-gray-500 mt-2">
-                Pending Withdrawals: ₹{balance?.pending_withdrawal_balance || "0.00"}
+                Pending Withdrawals: ₹{formatAmount(balance.pending)}
               </p>
             </CardContent>
           </Card>

@@ -4,12 +4,37 @@ import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import Link from "next/link";
-import { ArrowUpRight, Search } from "lucide-react";
+import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button, buttonVariants } from "@/components/ui/button";
 
+type AthleteApiItem = {
+  id: string;
+  name: string;
+  kyc_status: string;
+  token?: {
+    current_price?: string;
+    current_supply?: string;
+    pool_balance?: string;
+  };
+};
+
+type MarketAthlete = {
+  id: string;
+  name: string;
+  kycStatus: string;
+  currentPrice: number;
+};
+
+const normalizeAthlete = (item: AthleteApiItem): MarketAthlete => ({
+  id: item.id,
+  name: item.name,
+  kycStatus: item.kyc_status,
+  currentPrice: Number.parseFloat(item.token?.current_price ?? "0") || 0
+});
+
 export default function MarketPage() {
-  const [athletes, setAthletes] = useState<any[]>([]);
+  const [athletes, setAthletes] = useState<MarketAthlete[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [sortBy, setSortBy] = useState("market_cap"); // price, market_cap, volume
@@ -18,7 +43,13 @@ export default function MarketPage() {
     setLoading(true);
     try {
       const res = await api.get(`/athletes?sort=${sort}&limit=50`);
-      setAthletes(res.data.athletes || res.data || []);
+      const raw = Array.isArray(res.data?.athletes)
+        ? (res.data.athletes as AthleteApiItem[])
+        : Array.isArray(res.data)
+          ? (res.data as AthleteApiItem[])
+          : [];
+
+      setAthletes(raw.map(normalizeAthlete));
     } catch (err) {
       console.error(err);
     } finally {
@@ -30,12 +61,9 @@ export default function MarketPage() {
     fetchAthletes(sortBy);
   }, [sortBy]);
 
-  // Handle differences in API response gracefully if it's an array or nested object
-  const athletesList = Array.isArray(athletes) ? athletes : [];
-  
-  const filteredAthletes = athletesList.filter(a => 
-    a.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    a.sport.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredAthletes = athletes.filter((athlete) =>
+    athlete.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    athlete.kycStatus.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -51,7 +79,7 @@ export default function MarketPage() {
         <div className="relative flex-1 max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input 
-            placeholder="Search athletes or sports..." 
+            placeholder="Search athletes or status..." 
             className="pl-9"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -93,13 +121,17 @@ export default function MarketPage() {
                   <div>
                     <div className="flex justify-between items-start mb-2">
                       <div className="font-bold text-lg text-gray-900">{athlete.name}</div>
-                      <div className="bg-primary-50 text-primary-700 text-xs px-2.5 py-1 rounded-md font-bold tracking-wide uppercase">
-                        {athlete.sport}
+                      <div className={`text-xs px-2.5 py-1 rounded-md font-bold tracking-wide uppercase ${
+                        athlete.kycStatus === "VERIFIED"
+                          ? "bg-green-50 text-green-700"
+                          : athlete.kycStatus === "REJECTED"
+                            ? "bg-red-50 text-red-700"
+                            : "bg-amber-50 text-amber-700"
+                      }`}>
+                        {athlete.kycStatus}
                       </div>
                     </div>
-                    <p className="text-sm text-gray-500 line-clamp-2 mb-6">
-                      {athlete.bio || "No bio available"}
-                    </p>
+                    <p className="text-sm text-gray-500 mb-6">Tokenized athlete market listing</p>
                   </div>
                   
                   <div className="mt-auto">
@@ -107,7 +139,7 @@ export default function MarketPage() {
                       <div>
                         <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold mb-1">Current Price</div>
                         <div className="font-mono text-2xl font-bold text-gray-900">
-                          ₹{parseFloat(athlete.currentPrice || '0').toFixed(2)}
+                          ₹{athlete.currentPrice.toFixed(2)}
                         </div>
                       </div>
                     </div>

@@ -6,15 +6,66 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from "date-fns";
 
+type TradeHistoryApiRow = {
+  id: string;
+  athlete_id: string;
+  type: string;
+  amount_inr: string;
+  tokens: string;
+  status: string;
+  created_at: string;
+};
+
+type HistoryTrade = {
+  id: string;
+  athleteName: string;
+  type: string;
+  tokens: number;
+  totalInr: number;
+  status: string;
+  createdAt: string;
+};
+
+const parseAmount = (value?: string) => {
+  const parsed = Number.parseFloat(value ?? "0");
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 export default function HistoryPage() {
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<HistoryTrade[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
-        const res = await api.get("/trade/history?limit=50");
-        setHistory(res.data.history || res.data || []);
+        const [historyRes, athletesRes] = await Promise.all([
+          api.get("/trade/history?limit=50"),
+          api.get("/athletes?limit=50")
+        ]);
+
+        const athleteRows = Array.isArray(athletesRes.data?.athletes)
+          ? (athletesRes.data.athletes as Array<{ id: string; name: string }>)
+          : [];
+
+        const athleteNameById = new Map<string, string>(
+          athleteRows.map((athlete) => [athlete.id, athlete.name])
+        );
+
+        const tradeRows = Array.isArray(historyRes.data?.trades)
+          ? (historyRes.data.trades as TradeHistoryApiRow[])
+          : [];
+
+        setHistory(
+          tradeRows.map((trade) => ({
+            id: trade.id,
+            athleteName: athleteNameById.get(trade.athlete_id) ?? trade.athlete_id,
+            type: trade.type,
+            tokens: parseAmount(trade.tokens),
+            totalInr: parseAmount(trade.amount_inr),
+            status: trade.status,
+            createdAt: trade.created_at
+          }))
+        );
       } catch (err) {
         console.error(err);
       } finally {
@@ -23,8 +74,6 @@ export default function HistoryPage() {
     };
     fetchHistory();
   }, []);
-
-  const historyList = Array.isArray(history) ? history : [];
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
@@ -36,7 +85,7 @@ export default function HistoryPage() {
       <Card>
         {loading ? (
           <div className="py-12 text-center text-gray-500">Loading history...</div>
-        ) : historyList.length > 0 ? (
+        ) : history.length > 0 ? (
           <Table>
             <TableHeader>
               <TableRow>
@@ -49,19 +98,19 @@ export default function HistoryPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {historyList.map((trade: any) => (
+              {history.map((trade) => (
                 <TableRow key={trade.id}>
                   <TableCell className="text-gray-500 text-sm whitespace-nowrap">
                     {format(new Date(trade.createdAt), "MMM d, yyyy h:mm a")}
                   </TableCell>
                   <TableCell>
-                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${trade.tradeType === 'BUY' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                      {trade.tradeType}
+                    <span className={`px-2 py-1 rounded-full text-xs font-semibold ${trade.type === "BUY" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                      {trade.type}
                     </span>
                   </TableCell>
-                  <TableCell className="font-medium text-gray-900">{trade.athlete?.name || "Unknown"}</TableCell>
-                  <TableCell className="text-right font-mono text-sm">{parseFloat(trade.tokenAmount).toFixed(2)}</TableCell>
-                  <TableCell className="text-right font-mono text-sm">₹{parseFloat(trade.totalInr).toFixed(2)}</TableCell>
+                  <TableCell className="font-medium text-gray-900">{trade.athleteName}</TableCell>
+                  <TableCell className="text-right font-mono text-sm">{trade.tokens.toFixed(2)}</TableCell>
+                  <TableCell className="text-right font-mono text-sm">₹{trade.totalInr.toFixed(2)}</TableCell>
                   <TableCell className="text-right">
                     <span className="text-xs uppercase font-medium text-green-600 tracking-wider">
                       {trade.status}

@@ -43,7 +43,7 @@ export class AthleteService {
         return Number(b.market_cap.sub(a.market_cap).toString());
       }
 
-      return 0;
+      return Number(D(b.token.pool_balance).sub(a.token.pool_balance).toString());
     });
 
     const start = (input.page - 1) * input.limit;
@@ -64,11 +64,37 @@ export class AthleteService {
   public async getAthleteById(id: string) {
     const athlete = await prisma.athlete.findUnique({
       where: { id },
-      include: { token: true }
+      include: {
+        token: true,
+        priceHistory: {
+          orderBy: { sampledAt: "asc" }
+        }
+      }
     });
 
     if (!athlete) {
       throw new ApiError(404, "Athlete not found");
+    }
+
+    const currentPrice = D(athlete.token?.currentPrice.toString() ?? "0");
+    const currentSupply = D(athlete.token?.currentSupply.toString() ?? "0");
+    const poolBalance = D(athlete.token?.poolBalance.toString() ?? "0");
+
+    const priceHistory = athlete.priceHistory.map((point) => ({
+      sampled_at: point.sampledAt,
+      price: asAmountString(D(point.price.toString()))
+    }));
+
+    if (currentPrice.gt(0)) {
+      const lastPoint = athlete.priceHistory[athlete.priceHistory.length - 1];
+      const lastPrice = D(lastPoint?.price.toString() ?? "0");
+
+      if (!lastPoint || !lastPrice.eq(currentPrice)) {
+        priceHistory.push({
+          sampled_at: new Date(),
+          price: asAmountString(currentPrice)
+        });
+      }
     }
 
     return {
@@ -77,11 +103,11 @@ export class AthleteService {
         name: athlete.name,
         kyc_status: athlete.kycStatus,
         token: {
-          current_price: asAmountString(D(athlete.token?.currentPrice.toString() ?? "0")),
-          current_supply: asAmountString(D(athlete.token?.currentSupply.toString() ?? "0")),
-          pool_balance: asAmountString(D(athlete.token?.poolBalance.toString() ?? "0"))
+          current_price: asAmountString(currentPrice),
+          current_supply: asAmountString(currentSupply),
+          pool_balance: asAmountString(poolBalance)
         },
-        price_history: []
+        price_history: priceHistory
       }
     };
   }

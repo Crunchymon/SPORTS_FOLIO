@@ -63,8 +63,22 @@ model Athlete {
   token      Token?
   trades     Trade[]
   portfolios Portfolio[]
+  priceHistory PriceHistory[]
 
   @@map("athletes")
+}
+
+model PriceHistory {
+  id        String   @id @default(uuid()) @db.Uuid
+  athleteId String   @map("athlete_id") @db.Uuid
+  sampledAt DateTime @map("sampled_at")
+  price     Decimal  @db.Decimal(20, 8)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  athlete Athlete @relation(fields: [athleteId], references: [id], onDelete: Cascade)
+
+  @@index([athleteId, sampledAt])
+  @@map("price_history")
 }
 
 model Token {

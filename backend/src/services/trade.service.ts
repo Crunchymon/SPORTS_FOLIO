@@ -1,4 +1,5 @@
 import { LedgerAccountType, LedgerDirection, Prisma } from "@prisma/client";
+import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
 import { D, quantize, asAmountString } from "../utils/decimal";
 import { ApiError } from "../utils/errors";
@@ -33,6 +34,20 @@ const getLastBalance = async (
 };
 
 const asDecimal = (value: Prisma.Decimal | null | undefined) => D(value?.toString() ?? "0");
+
+const appendPriceHistoryPoint = async (
+  tx: Prisma.TransactionClient,
+  athleteId: string,
+  price: Prisma.Decimal
+) => {
+  await tx.priceHistory.create({
+    data: {
+      athleteId,
+      sampledAt: new Date(),
+      price
+    }
+  });
+};
 
 export class TradeService {
   constructor(private readonly guard: CircuitBreakerGuard) {}
@@ -69,7 +84,7 @@ export class TradeService {
         throw new ApiError(404, "Investor or athlete not found");
       }
 
-      if (!investor.kycVerified) {
+      if (env.KYC_REQUIRED && !investor.kycVerified) {
         throw new ApiError(403, "KYC verification required");
       }
 
@@ -142,6 +157,8 @@ export class TradeService {
       if (tokenUpdate.count !== 1) {
         throw new ApiError(409, "Concurrent token update detected");
       }
+
+      await appendPriceHistoryPoint(tx, athlete.id, new Prisma.Decimal(price.toString()));
 
       await tx.investor.update({
         where: { id: investor.id },
@@ -360,6 +377,8 @@ export class TradeService {
       if (tokenUpdate.count !== 1) {
         throw new ApiError(409, "Concurrent token update detected");
       }
+
+      await appendPriceHistoryPoint(tx, athlete.id, new Prisma.Decimal(newPrice.toString()));
 
       await tx.investor.update({
         where: { id: investor.id },

@@ -10,6 +10,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
   JWT_SECRET: z.string().min(16).default("sportsfolio-dev-secret-change-me"),
   JWT_EXPIRES_IN: z.string().default("7d"),
+  KYC_REQUIRED: z.enum(["true", "false"]).default("true"),
   DECIMAL_PRECISION: z.string().default("28"),
   BULLMQ_QUEUE_PREFIX: z.string().default("sportsfolio"),
   PRICE_CIRCUIT_BREAKER_PCT: z.string().default("5"),
@@ -28,6 +29,7 @@ if (!parsed.success) {
 export const env = {
   ...parsed.data,
   PORT: Number(parsed.data.PORT),
+  KYC_REQUIRED: parsed.data.KYC_REQUIRED === "true",
   DECIMAL_PRECISION: Number(parsed.data.DECIMAL_PRECISION),
   PRICE_CIRCUIT_BREAKER_PCT: Number(parsed.data.PRICE_CIRCUIT_BREAKER_PCT),
   POOL_DRAIN_GUARD_PCT: Number(parsed.data.POOL_DRAIN_GUARD_PCT),

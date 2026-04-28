@@ -2,52 +2,52 @@
 
 > **Fund the players. Believe from the start. Share in the success.**
 
-A donation-backed investment platform where Ranji Trophy cricketers get funded by their believers — and those believers get rewarded when the athlete succeeds.
+A donation-backed investment platform where Ranji Trophy cricketers get funded by their believers, and those believers get rewarded when the athlete succeeds.
 
 ---
 
-## 🎯 The Problem
+## The Problem
 
-India's best domestic cricketers can't afford equipment. When they need money, they call family and friends. That money is given informally, with no return even if the player becomes the next Virat Kohli.
+India's best domestic cricketers cannot afford equipment. When they need money, they call family and friends. That money is given informally, with no return even if the player becomes the next Virat Kohli.
 
 **SportsFolio formalizes this into a structured financial product.**
 
 ---
 
-## 💡 How It Works
+## How It Works
 
 Every investment is split between two things:
 
-1. **Donation** → Goes directly to the athlete (immediate funding)
-2. **Pool deposit** → Backs tradeable tokens (potential returns)
+1. **Donation** -> Goes directly to the athlete (immediate funding)
+2. **Pool deposit** -> Backs tradeable tokens (potential returns)
 
 The split ratio shifts automatically based on price:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  Early Stage (Price ≈ Rs 0)                            │
-│  ████████████████████████████████████████████ 90%      │ → Athlete
-│  █████ 10%                                              │ → Pool
-│                                                         │
-│  Mid Stage (Price ≈ Rs 100)                            │
-│  ██████████████████████ 45%                            │ → Athlete
-│  ██████████████████████ 55%                            │ → Pool
-│                                                         │
-│  Late Stage (Price → High)                             │
-│  █ 1%                                                   │ → Athlete
-│  ████████████████████████████████████████████ 99%      │ → Pool
-└─────────────────────────────────────────────────────────┘
+```text
++---------------------------------------------------------+
+|  Early Stage (Price is approx Rs 0)                     |
+|  ████████████████████████████████████████████ 90%       | -> Athlete
+|  █████ 10%                                              | -> Pool
+|                                                         |
+|  Mid Stage (Price is approx Rs 100)                     |
+|  ██████████████████████ 45%                             | -> Athlete
+|  ██████████████████████ 55%                             | -> Pool
+|                                                         |
+|  Late Stage (Price is High)                             |
+|  █ 1%                                                   | -> Athlete
+|  ████████████████████████████████████████████ 99%       | -> Pool
++---------------------------------------------------------+
 ```
 
 **Why this works:**
-- Early believers get **massive token quantities** at near-zero prices (despite lower pool %)
+- Early believers get **massive token quantities** at near-zero prices (despite lower pool percentage)
 - Athletes get funded at every stage
 - Late investors provide deep liquidity
 - Everyone wins if the athlete succeeds
 
 ---
 
-## 🔥 The Core Innovation
+## The Core Innovation
 
 **Quadratic bonding curve** + **Variable pool ratio** = Forced coupling between donation and investment.
 
@@ -55,9 +55,9 @@ You cannot invest without donating. Early believers fund the success that funds 
 
 ### The Math (For The Curious)
 
-```
-Price = k × Supply²
-Pool Ratio = 10% + 89% × (Price / (Price + P_mid))
+```text
+Price = k * Supply^2
+Pool Ratio = 10% + 89% * (Price / (Price + P_mid))
 ```
 
 **Real example:**
@@ -67,82 +67,119 @@ Pool Ratio = 10% + 89% × (Price / (Price + P_mid))
 | Early    | Rs 1,000 | Rs 100 (10%) | Rs 900 | **31.07** | **Rs 76,000+** |
 | Late     | Rs 1,000 | Rs 900 (90%) | Rs 100 | **1.38** | **Rs 3,500** |
 
-_*At supply = 512 tokens_
+*At supply = 512 tokens*
 
-The early investor's profit comes from later investors' pool deposits. But unlike pure speculation, **real value was created** — an athlete was funded.
+The early investor's profit comes from later investors' pool deposits. But unlike pure speculation, **real value was created**: an athlete was funded.
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-```
-┌──────────────┐
-│   Next.js    │  ← Trading UI, Real-time Charts
-└──────┬───────┘
-       │
-┌──────▼────────────────────────────────────┐
-│         Node.js + Express API             │
-│  • JWT Auth  • Trade Queue  • WebSocket   │
-└──────┬───────────┬───────────┬────────────┘
-       │           │           │
-   ┌───▼──┐    ┌──▼───┐   ┌───▼────┐
-   │Redis │    │Postgres│ │BullMQ  │
-   │Cache │    │+Prisma │ │Queue   │
-   └──────┘    └────────┘ └────────┘
+```text
++--------------+
+|   Next.js    |  <- Trading UI, Real-time Charts
++------+-------+
+       |
++------v------------------------------------+
+|         Node.js + Express API             |
+|  * JWT Auth  * Trade Queue  * WebSocket   |
++------+-----------+-----------+------------+
+       |           |           |
+   +---v--+    +--v---+   +---v----+
+   |Redis |    |PG    |   |BullMQ  |
+   |Cache |    |Prisma|   |Queue   |
+   +------+    +------+   +--------+
 ```
 
 **Key Tech:**
-- **Decimal.js** — Arbitrary precision math (never floating point for money)
-- **Bonding Curve Engine** — Pure pricing logic, independently testable
-- **Per-athlete trade queues** — Eliminates race conditions
-- **Append-only ledger** — Complete audit trail, balances always reconstructable
-- **Idempotency keys** — Network retries are always safe
+- **Decimal.js**: Arbitrary precision math (never floating point for money)
+- **Bonding Curve Engine**: Pure pricing logic, independently testable
+- **Per-athlete trade queues**: Eliminates race conditions
+- **Append-only ledger**: Complete audit trail, balances always reconstructable
+- **Idempotency keys**: Network retries are always safe
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
+
+Follow these detailed setup instructions to get SportsFolio running locally.
 
 ### Prerequisites
-- Node.js 20+
-- PostgreSQL 15+
-- Redis 7+
+- Node.js 20 or higher
+- PostgreSQL 15 or higher
+- Redis 7 or higher
+- Docker and Docker Compose (if using the recommended setup)
 
 ### With Docker (Recommended)
 
+This is the fastest way to get the entire stack running.
+
 ```bash
 git clone https://github.com/Crunchymon/SPORTS_FOLIO.git
-cd SPORTS_FOLIO/backend
+cd SPORTS_FOLIO
 
-# Start all services
-docker-compose up -d
+# Start all required services (database, redis, etc.)
+docker compose up -d
 
-# Run migrations and seed
+# Setup the backend
+cd backend
+npm install
+cp .env.example .env
+npx prisma generate
 npx prisma migrate dev
 npx prisma db seed
+
+# Run the backend
+npm run dev
+
+# Open a new terminal and setup the frontend
+cd ../frontend
+npm install
+cp .env.local.example .env.local
+npm run dev
 ```
 
 ### Manual Setup
 
-**Backend:**
+If you prefer running services directly on your host machine without Docker:
+
+**1. Database and Cache:**
+Ensure PostgreSQL is running and accessible. Ensure Redis is running locally on port 6379.
+
+**2. Backend:**
 ```bash
 cd backend
 npm install
-cp .env.example .env  # Configure database
-npx prisma migrate dev
-npm run dev           # Runs on :3001
-```
 
-**Frontend:**
+# Copy the example environment file and configure your database URL
+cp .env.example .env
+
+# Generate Prisma client and run migrations
+npx prisma generate
+npx prisma migrate dev
+npx prisma db seed
+
+# Start the development server
+npm run dev
+```
+The API will run on `http://localhost:3001`.
+
+**3. Frontend:**
 ```bash
 cd frontend
 npm install
-cp .env.local.example .env.local  # Configure API URL
-npm run dev                        # Runs on :3000
+
+# Configure environment variables
+cp .env.local.example .env.local
+
+# Start the frontend application
+npm run dev
 ```
+The UI will be accessible at `http://localhost:3000`.
 
 ---
 
-## 📡 Core API Endpoints
+## Core API Endpoints
 
 ### Authentication
 ```http
@@ -176,81 +213,81 @@ GET    /portfolio          # Your holdings across all athletes
 
 ---
 
-## 🛡️ What Makes This Bulletproof
+## What Makes This Bulletproof
 
 ### Financial Integrity
-- ✅ **No floating point** — All money calculations use Decimal.js (28-digit precision)
-- ✅ **Append-only ledger** — Every transaction creates immutable history
-- ✅ **Idempotent trades** — UUID-based, network retries never double-charge
-- ✅ **Race condition defense** — Per-athlete queues + SELECT FOR UPDATE + optimistic locking
-- ✅ **Daily reconciliation** — Pool balance verified against curve integral every night
+- **No floating point**: All money calculations use Decimal.js (28-digit precision)
+- **Append-only ledger**: Every transaction creates immutable history
+- **Idempotent trades**: UUID-based, network retries never double-charge
+- **Race condition defense**: Per-athlete queues + SELECT FOR UPDATE + optimistic locking
+- **Daily reconciliation**: Pool balance verified against curve integral every night
 
 ### Security
-- ✅ **JWT authentication** — Stateless, horizontally scalable
-- ✅ **KYC verification** — Configurable enforcement for deposits/withdrawals/trades
-- ✅ **Rate limiting** — Per-user, per-endpoint protection
-- ✅ **Circuit breakers** — Automatic trading halts on suspicious activity
+- **JWT authentication**: Stateless, horizontally scalable
+- **KYC verification**: Configurable enforcement for deposits, withdrawals, and trades
+- **Rate limiting**: Per-user, per-endpoint protection
+- **Circuit breakers**: Automatic trading halts on suspicious activity
 
 ---
 
-## 🎰 Bot Trading System
+## Bot Trading System
 
-At launch, real users = 0. Flat price charts = no engagement.
+At launch, a lack of real users might lead to flat price charts and no engagement.
 
 **Solution:** System bots create organic-looking market activity from day one.
 
 ### Built-in Strategies
-- **Momentum Bot** — Trend following (amplifies genuine moves)
-- **Mean Reversion Bot** — Statistical anchoring (prevents runaway prices)
-- **Noise Trader Bot** — Random chaos (simulates retail investors)
+- **Momentum Bot**: Trend following (amplifies genuine moves)
+- **Mean Reversion Bot**: Statistical anchoring (prevents runaway prices)
+- **Noise Trader Bot**: Random chaos (simulates retail investors)
 
 ### User-Configurable Bots
-Investors create custom bots via UI (no coding):
-- Trigger: Price change % / Moving average crossover / Time interval
-- Trade size: Fixed INR or % of wallet
+Investors can create custom bots via the UI (no coding required):
+- Trigger: Price change percentage, Moving average crossover, or Time interval
+- Trade size: Fixed INR or percentage of wallet
 - Stop loss / Take profit thresholds
 - Cooldown periods
 
 **Live leaderboard ranks all bots by ROI.**
 
-Bot activity is **explicitly labeled** in the UI — not hidden.
+Bot activity is **explicitly labeled** in the UI, not hidden.
 
 ---
 
-## 📊 Project Structure
+## Project Structure
 
-```
+```text
 SPORTS_FOLIO/
-├── backend/
-│   ├── src/
-│   │   ├── services/        # Business logic
-│   │   │   ├── BondingCurveEngine.js
-│   │   │   ├── TradeService.js
-│   │   │   └── WalletService.js
-│   │   ├── bots/            # Bot trading system
-│   │   ├── routes/          # API endpoints
-│   │   ├── middleware/      # Auth, validation, rate limiting
-│   │   └── queues/          # BullMQ job processors
-│   ├── prisma/
-│   │   ├── schema.prisma    # Database schema
-│   │   └── migrations/      # Migration history
-│   └── docker-compose.yml
-│
-└── frontend/
-    ├── src/
-    │   ├── app/
-    │   │   ├── (auth)/      # Login, signup
-    │   │   └── (dashboard)/ # Wallet, market, portfolio
-    │   ├── components/
-    │   │   ├── ui/          # Button, card, input, dialog, toast
-    │   │   └── trading/     # PriceChart, TradeForm, OrderBook
-    │   └── hooks/           # useAuth, useWallet, useWebSocket
-    └── package.json
++-- backend/
+|   +-- src/
+|   |   +-- services/        # Business logic
+|   |   |   +-- BondingCurveEngine.js
+|   |   |   +-- TradeService.js
+|   |   |   +-- WalletService.js
+|   |   +-- bots/            # Bot trading system
+|   |   +-- routes/          # API endpoints
+|   |   +-- middleware/      # Auth, validation, rate limiting
+|   |   +-- queues/          # BullMQ job processors
+|   +-- prisma/
+|   |   +-- schema.prisma    # Database schema
+|   |   +-- migrations/      # Migration history
+|   +-- docker-compose.yml
+|
++-- frontend/
+    +-- src/
+        +-- app/
+        |   +-- (auth)/      # Login, signup
+        |   +-- (dashboard)/ # Wallet, market, portfolio
+        +-- components/
+        |   +-- ui/          # Button, card, input, dialog, toast
+        |   +-- trading/     # PriceChart, TradeForm, OrderBook
+        +-- hooks/           # useAuth, useWallet, useWebSocket
+    +-- package.json
 ```
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ```bash
 # Backend
@@ -267,20 +304,20 @@ npm run test:watch       # Watch mode
 
 ---
 
-## 💰 Revenue Model
+## Revenue Model
 
 | Source | Mechanism | Status |
 |--------|-----------|--------|
-| **Deposit fee** | 1% on wallet top-up | ✅ Live |
-| **Withdrawal fee** | Flat fee on bank transfer | ✅ Live |
-| **Listing fee** | One-time athlete onboarding | ✅ Live |
-| **Idle pool yield** | 80% of pool in T-bills, 20% liquid | 🔜 Requires NBFC partner |
+| **Deposit fee** | 1% on wallet top-up | Live |
+| **Withdrawal fee** | Flat fee on bank transfer | Live |
+| **Listing fee** | One-time athlete onboarding | Live |
+| **Idle pool yield** | 80% of pool in T-bills, 20% liquid | Requires NBFC partner |
 
-**Why fee at deposit?** User always knows exact balance. No surprise deductions. Transparency over friction.
+**Why fee at deposit?** The user always knows their exact balance. No surprise deductions. Transparency over friction.
 
 ---
 
-## 🚧 Roadmap
+## Roadmap
 
 - [x] Bonding curve engine with Decimal.js
 - [x] Variable pool ratio implementation
@@ -298,7 +335,7 @@ npm run test:watch       # Watch mode
 
 ---
 
-## 📚 Documentation
+## Documentation
 
 - **API Reference:** `backend/docs/openapi.yaml`
 - **Database Schema:** `backend/prisma/schema.prisma`
@@ -307,34 +344,34 @@ npm run test:watch       # Watch mode
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! Please:
+We welcome contributions! Please follow these steps:
 
-1. Fork the repo
+1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit using [Conventional Commits](https://www.conventionalcommits.org/)
 4. Push and open a Pull Request
 
-**Code style:** ESLint + Prettier (configured in repo)
+**Code style:** ESLint + Prettier (configured in repository)
 
 ---
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 Inspired by the real struggles of Ranji Trophy cricketers who deserve better funding mechanisms.
 
-Built with ❤️ by developers who believe in democratizing athlete funding.
+Built by developers who believe in democratizing athlete funding.
 
 ---
 
-## 📞 Get In Touch
+## Get In Touch
 
 - **Issues:** [GitHub Issues](https://github.com/Crunchymon/SPORTS_FOLIO/issues)
 - **Discussions:** [GitHub Discussions](https://github.com/Crunchymon/SPORTS_FOLIO/discussions)
@@ -342,4 +379,4 @@ Built with ❤️ by developers who believe in democratizing athlete funding.
 
 ---
 
-**SportsFolio** — *Because every champion was once a believer's bet.*
+**SportsFolio**: *Because every champion was once a believer's bet.*

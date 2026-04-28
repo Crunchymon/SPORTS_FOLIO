@@ -11,6 +11,8 @@ import { walletRouter } from "./routes/wallet.routes";
 import { tradeRouter } from "./routes/trade.routes";
 import { athleteRouter } from "./routes/athlete.routes";
 import { portfolioRouter } from "./routes/portfolio.routes";
+import { analyticsRouter } from "./routes/analytics.routes";
+import { botRouter } from "./routes/bot.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 
 export const app = express();
@@ -35,6 +37,8 @@ app.use("/wallet", walletRouter);
 app.use("/trade", tradeRouter);
 app.use("/athletes", athleteRouter);
 app.use("/portfolio", portfolioRouter);
+app.use("/analytics", analyticsRouter);
+app.use("/bots", botRouter);
 
 app.use(notFoundHandler);
 app.use(errorHandler);

@@ -1,6 +1,3 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
-
 -- CreateEnum
 CREATE TYPE "public"."KycStatus" AS ENUM ('PENDING', 'VERIFIED', 'REJECTED');
 
@@ -34,6 +31,17 @@ CREATE TABLE "public"."athletes" (
     "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "athletes_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "public"."price_history" (
+    "id" UUID NOT NULL,
+    "athlete_id" UUID NOT NULL,
+    "sampled_at" TIMESTAMP(3) NOT NULL,
+    "price" DECIMAL(20,8) NOT NULL,
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "price_history_pkey" PRIMARY KEY ("id")
 );
 
 -- CreateTable
@@ -147,6 +155,9 @@ CREATE TABLE "public"."audit_log" (
 );
 
 -- CreateIndex
+CREATE INDEX "price_history_athlete_id_sampled_at_idx" ON "public"."price_history"("athlete_id", "sampled_at");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "tokens_athlete_id_key" ON "public"."tokens"("athlete_id");
 
 -- CreateIndex
@@ -177,6 +188,9 @@ CREATE INDEX "withdrawals_investor_id_status_idx" ON "public"."withdrawals"("inv
 CREATE INDEX "audit_log_entity_type_created_at_idx" ON "public"."audit_log"("entity_type", "created_at");
 
 -- AddForeignKey
+ALTER TABLE "public"."price_history" ADD CONSTRAINT "price_history_athlete_id_fkey" FOREIGN KEY ("athlete_id") REFERENCES "public"."athletes"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
 ALTER TABLE "public"."tokens" ADD CONSTRAINT "tokens_athlete_id_fkey" FOREIGN KEY ("athlete_id") REFERENCES "public"."athletes"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
 -- AddForeignKey
@@ -199,4 +213,3 @@ ALTER TABLE "public"."bots" ADD CONSTRAINT "bots_owner_id_fkey" FOREIGN KEY ("ow
 
 -- AddForeignKey
 ALTER TABLE "public"."withdrawals" ADD CONSTRAINT "withdrawals_investor_id_fkey" FOREIGN KEY ("investor_id") REFERENCES "public"."investors"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
-

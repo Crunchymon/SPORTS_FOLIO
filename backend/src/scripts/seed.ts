@@ -58,6 +58,26 @@ async function seedAthletes() {
       trendPct: 0.31,
       volatilityPct: 0.055,
       phase: 2.2
+    },
+    {
+      name: "Aditya Verma",
+      bankAccount: "ATH003BANK",
+      kConstant: "0.00500000",
+      pMid: "15.00000000",
+      basePrice: 50,
+      trendPct: 0.8,
+      volatilityPct: 0.09,
+      phase: 0.5
+    },
+    {
+      name: "Siddharth Rao",
+      bankAccount: "ATH004BANK",
+      kConstant: "0.00900000",
+      pMid: "18.00000000",
+      basePrice: 65,
+      trendPct: 0.1,
+      volatilityPct: 0.12,
+      phase: 3.1
     }
   ];
 
@@ -128,7 +148,7 @@ async function seedInvestor() {
 
   const passwordHash = await bcrypt.hash("Password@123", 10);
 
-  await prisma.investor.create({
+  const investorRecord = await prisma.investor.create({
     data: {
       name: "Demo Investor",
       email,
@@ -138,11 +158,38 @@ async function seedInvestor() {
       walletBalance: new Prisma.Decimal("100000.00000000")
     }
   });
+
+  return investorRecord;
+}
+
+async function seedTrades(investorId: string) {
+  // Let's create a few trades to simulate volume
+  const athletes = await prisma.athlete.findMany();
+  
+  for (const athlete of athletes) {
+    await prisma.trade.create({
+      data: {
+        investorId: investorId,
+        athleteId: athlete.id,
+        type: "BUY",
+        amountInr: new Prisma.Decimal("5000.00"),
+        tokens: new Prisma.Decimal("100.00"),
+        idempotencyKey: crypto.randomUUID(),
+        status: "COMPLETED",
+        poolDeposit: new Prisma.Decimal("4800.00"),
+        donationAmount: new Prisma.Decimal("200.00"),
+        createdAt: new Date() // created today, will show up in 24h volume
+      }
+    });
+  }
 }
 
 async function main() {
   await seedAthletes();
-  await seedInvestor();
+  const investor = await seedInvestor();
+  if (investor) {
+    await seedTrades(investor.id);
+  }
 
   console.log("Seed complete");
 }

@@ -1,7 +1,9 @@
+import { randomUUID } from "crypto";
 import { prisma } from "../lib/prisma";
 import { StrategyType } from "@prisma/client";
 import { D } from "../utils/decimal";
 import { ApiError } from "../utils/errors";
+import { enqueueTradeJob } from "../jobs/trade.queue";
 import { BotFactory } from "./strategies/BotFactory";
 import { MarketState } from "./strategies/IStrategy";
 
@@ -43,16 +45,12 @@ export class BotService {
    *
    * 1. Load the bot and the athlete's current market state from the DB.
    * 2. Use BotFactory to instantiate the correct IStrategy for this bot's
-   *    strategyType and config — the caller never knows which concrete class
-   *    is used.
-   * 3. Call strategy.tick(marketState) — the Strategy interface's single
-   *    method, polymorphically dispatched to MomentumStrategy,
-   *    MeanReversionStrategy, or NoiseStrategy at runtime.
-   * 4. Return the signal. Actual trade execution (idempotency key, queue
-   *    submission) is left to the caller so this method stays pure and testable.
-   *
-   * Open/Closed: adding a 4th strategy type requires no change here — only
-   * the new strategy class and one BotFactory case.
+   *    strategyType and config.
+   * 3. Call strategy.tick(marketState) — polymorphically dispatched to the
+   *    correct concrete strategy at runtime.
+   * 4. If a signal is returned, submit it as a real trade through enqueueTradeJob
+   *    using a fresh idempotency key. The trade goes through the same queue,
+   *    lock, and ledger path as any human-initiated trade.
    */
   public async runTick(botId: string, investorId: string) {
     const bot = await prisma.bot.findUnique({ where: { id: botId } });
@@ -69,7 +67,6 @@ export class BotService {
       throw new ApiError(400, "Bot is inactive");
     }
 
-    // Resolve target athlete from bot config
     const config = bot.config as Record<string, unknown>;
     const targetAthleteId = config.targetAthlete as string | undefined;
 
@@ -83,7 +80,7 @@ export class BotService {
         token: true,
         priceHistory: {
           orderBy: { sampledAt: "asc" },
-          take: 20 // Enough for any strategy's lookback window
+          take: 20
         }
       }
     });
@@ -92,8 +89,6 @@ export class BotService {
       throw new ApiError(404, "Target athlete or token not found");
     }
 
-    // Build MarketState — passed to strategy.tick() as the sole input.
-    // Strategies must not perform DB reads; all data is provided here.
     const marketState: MarketState = {
       athleteId: athlete.id,
       currentPrice: D(athlete.token.currentPrice.toString()),
@@ -102,30 +97,82 @@ export class BotService {
       recentPrices: athlete.priceHistory.map((p) => D(p.price.toString()))
     };
 
-    // Factory Pattern — create the correct strategy without the caller knowing
-    // which concrete class is instantiated.
+    // Factory — instantiate correct strategy
     const strategy = BotFactory.create(bot.strategyType, config);
 
-    // Strategy Pattern — polymorphic tick() call. Returns a TradeSignal or
-    // null if the strategy decides to sit this tick out.
+    // Strategy — polymorphic tick call
     const signal = strategy.tick(marketState);
+
+    if (!signal) {
+      return {
+        bot_id: bot.id,
+        strategy_type: bot.strategyType,
+        signal: null,
+        trade_result: null,
+        market_snapshot: buildSnapshot(athlete.id, athlete.token)
+      };
+    }
+
+    // Submit the signal as a real trade through the existing queue pipeline.
+    // Each bot tick gets a fresh UUID as the idempotency key so retries from
+    // the scheduler never double-execute the same trade.
+    let tradeResult: unknown = null;
+
+    try {
+      if (signal.direction === "BUY") {
+        tradeResult = await enqueueTradeJob({
+          type: "BUY",
+          investorId,
+          athleteId: targetAthleteId,
+          amountInr: signal.amount.toFixed(8),
+          idempotencyKey: randomUUID()
+        });
+      } else {
+        tradeResult = await enqueueTradeJob({
+          type: "SELL",
+          investorId,
+          athleteId: targetAthleteId,
+          tokenAmount: signal.amount.toFixed(8),
+          idempotencyKey: randomUUID()
+        });
+      }
+    } catch (err) {
+      // Trade execution can legitimately fail (insufficient balance, pool drain
+      // guard, market paused). Log it but don't throw — the scheduler must
+      // continue ticking other bots, and the HTTP endpoint should still return
+      // the signal so the caller can see what was attempted.
+      console.error(`[BotService] Trade execution failed for bot ${bot.id}:`, err);
+      tradeResult = {
+        error: err instanceof Error ? err.message : "Trade execution failed"
+      };
+    }
 
     return {
       bot_id: bot.id,
       strategy_type: bot.strategyType,
-      signal: signal
-        ? {
-            direction: signal.direction,
-            amount: signal.amount.toFixed(8),
-            rationale: signal.rationale
-          }
-        : null,
-      market_snapshot: {
-        athlete_id: athlete.id,
-        current_price: athlete.token.currentPrice.toString(),
-        current_supply: athlete.token.currentSupply.toString(),
-        pool_balance: athlete.token.poolBalance.toString()
-      }
+      signal: {
+        direction: signal.direction,
+        amount: signal.amount.toFixed(8),
+        rationale: signal.rationale
+      },
+      trade_result: tradeResult,
+      market_snapshot: buildSnapshot(athlete.id, athlete.token)
     };
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function buildSnapshot(
+  athleteId: string,
+  token: { currentPrice: { toString(): string }; currentSupply: { toString(): string }; poolBalance: { toString(): string } }
+) {
+  return {
+    athlete_id: athleteId,
+    current_price: token.currentPrice.toString(),
+    current_supply: token.currentSupply.toString(),
+    pool_balance: token.poolBalance.toString()
+  };
 }

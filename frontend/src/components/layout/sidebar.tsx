@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { LayoutDashboard, TrendingUp, History, Wallet, Sparkles, Settings, BarChart } from "lucide-react";
+import { LayoutDashboard, TrendingUp, History, Wallet, Sparkles, Settings, Bot, BarChart } from "lucide-react";
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -13,7 +13,8 @@ export function Sidebar() {
     { name: "Market", href: "/market", icon: TrendingUp },
     { name: "Trade History", href: "/history", icon: History },
     { name: "Wallet", href: "/wallet", icon: Wallet },
-{ name: "Analytics", href: "/analytics", icon: BarChart },
+    { name: "Bots", href: "/bots", icon: Bot },
+    { name: "Analytics", href: "/analytics", icon: BarChart },
     { name: "Settings", href: "/settings", icon: Settings },
   ];
 

@@ -17,7 +17,8 @@ const envSchema = z.object({
   POOL_DRAIN_GUARD_PCT: z.string().default("15"),
   MAX_TRADE_SIZE_PCT: z.string().default("10"),
   IDEMPOTENCY_TTL_SECONDS: z.string().default("86400"),
-  FRONTEND_URL: z.string().url().default("http://localhost:3000")
+  FRONTEND_URL: z.string().url().default("http://localhost:3000"),
+  BOT_TICK_INTERVAL_MS: z.string().default("30000")
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -35,5 +36,6 @@ export const env = {
   PRICE_CIRCUIT_BREAKER_PCT: Number(parsed.data.PRICE_CIRCUIT_BREAKER_PCT),
   POOL_DRAIN_GUARD_PCT: Number(parsed.data.POOL_DRAIN_GUARD_PCT),
   MAX_TRADE_SIZE_PCT: Number(parsed.data.MAX_TRADE_SIZE_PCT),
-  IDEMPOTENCY_TTL_SECONDS: Number(parsed.data.IDEMPOTENCY_TTL_SECONDS)
+  IDEMPOTENCY_TTL_SECONDS: Number(parsed.data.IDEMPOTENCY_TTL_SECONDS),
+  BOT_TICK_INTERVAL_MS: Number(parsed.data.BOT_TICK_INTERVAL_MS)
 };

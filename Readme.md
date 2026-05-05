@@ -135,7 +135,7 @@ npm run dev
 # Open a new terminal and setup the frontend
 cd ../frontend
 npm install
-cp .env.local.example .env.local
+cp .env.example .env
 npm run dev
 ```
 
@@ -170,7 +170,7 @@ cd frontend
 npm install
 
 # Configure environment variables
-cp .env.local.example .env.local
+cp .env.example .env
 
 # Start the frontend application
 npm run dev

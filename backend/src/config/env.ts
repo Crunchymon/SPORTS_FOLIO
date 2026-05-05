@@ -16,7 +16,8 @@ const envSchema = z.object({
   PRICE_CIRCUIT_BREAKER_PCT: z.string().default("5"),
   POOL_DRAIN_GUARD_PCT: z.string().default("15"),
   MAX_TRADE_SIZE_PCT: z.string().default("10"),
-  IDEMPOTENCY_TTL_SECONDS: z.string().default("86400")
+  IDEMPOTENCY_TTL_SECONDS: z.string().default("86400"),
+  FRONTEND_URL: z.string().url().default("http://localhost:3000")
 });
 
 const parsed = envSchema.safeParse(process.env);

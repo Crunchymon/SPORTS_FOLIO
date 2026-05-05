@@ -14,11 +14,12 @@ import { portfolioRouter } from "./routes/portfolio.routes";
 import { analyticsRouter } from "./routes/analytics.routes";
 import { botRouter } from "./routes/bot.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
+import { env } from "../config/env";
 
 export const app = express();
 
 app.use(helmet());
-app.use(cors());
+app.use(cors({ origin: env.FRONTEND_URL }));
 app.use(express.json());
 app.use(morgan("dev"));
 

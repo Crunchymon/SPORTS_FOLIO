@@ -1,10 +1,11 @@
 import { LedgerAccountType, LedgerDirection, Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { prisma } from "../lib/prisma";
+import { marketEventBus } from "../lib/market-event-bus";
 import { D, quantize, asAmountString } from "../utils/decimal";
 import { ApiError } from "../utils/errors";
 import { BondingCurveEngine } from "./bonding-curve.engine";
-import { CircuitBreakerGuard } from "./circuit-breaker.guard";
+import { ICircuitBreakerGuard } from "./interfaces/ICircuitBreakerGuard";
 
 type BuyTradeInput = {
   investorId: string;
@@ -35,22 +36,13 @@ const getLastBalance = async (
 
 const asDecimal = (value: Prisma.Decimal | null | undefined) => D(value?.toString() ?? "0");
 
-const appendPriceHistoryPoint = async (
-  tx: Prisma.TransactionClient,
-  athleteId: string,
-  price: Prisma.Decimal
-) => {
-  await tx.priceHistory.create({
-    data: {
-      athleteId,
-      sampledAt: new Date(),
-      price
-    }
-  });
-};
-
 export class TradeService {
-  constructor(private readonly guard: CircuitBreakerGuard) {}
+  /**
+   * Dependency Inversion Principle — accepts the ICircuitBreakerGuard
+   * abstraction, not the concrete CircuitBreakerGuard. A NullCircuitBreakerGuard
+   * can be injected for tests or seed scripts without any code change here.
+   */
+  constructor(private readonly guard: ICircuitBreakerGuard) {}
 
   public async executeBuy(input: BuyTradeInput) {
     const existing = await prisma.trade.findUnique({
@@ -76,7 +68,9 @@ export class TradeService {
 
     await this.guard.assertMarketOpen(input.athleteId);
 
-    return prisma.$transaction(async (tx) => {
+    // Run the atomic trade transaction. We return both the API result and the
+    // event payload so the event can be emitted AFTER commit — outside the tx.
+    const { result, eventPayload } = await prisma.$transaction(async (tx) => {
       const investor = await tx.investor.findUnique({ where: { id: input.investorId } });
       const athlete = await tx.athlete.findUnique({ where: { id: input.athleteId }, include: { token: true } });
 
@@ -148,9 +142,7 @@ export class TradeService {
           currentSupply: new Prisma.Decimal(newSupply.toString()),
           currentPrice: new Prisma.Decimal(price.toString()),
           poolBalance: new Prisma.Decimal(newPoolBalance.toString()),
-          version: {
-            increment: 1
-          }
+          version: { increment: 1 }
         }
       });
 
@@ -158,20 +150,13 @@ export class TradeService {
         throw new ApiError(409, "Concurrent token update detected");
       }
 
-      await appendPriceHistoryPoint(tx, athlete.id, new Prisma.Decimal(price.toString()));
-
       await tx.investor.update({
         where: { id: investor.id },
         data: { walletBalance: new Prisma.Decimal(newWalletBalance.toString()) }
       });
 
       const existingPortfolio = await tx.portfolio.findUnique({
-        where: {
-          investorId_athleteId: {
-            investorId: investor.id,
-            athleteId: athlete.id
-          }
-        }
+        where: { investorId_athleteId: { investorId: investor.id, athleteId: athlete.id } }
       });
 
       if (!existingPortfolio) {
@@ -193,12 +178,7 @@ export class TradeService {
         const newAvgPrice = quantize(weightedCost.div(newTokensHeld));
 
         await tx.portfolio.update({
-          where: {
-            investorId_athleteId: {
-              investorId: investor.id,
-              athleteId: athlete.id
-            }
-          },
+          where: { investorId_athleteId: { investorId: investor.id, athleteId: athlete.id } },
           data: {
             tokensHeld: new Prisma.Decimal(newTokensHeld.toString()),
             avgBuyPrice: new Prisma.Decimal(newAvgPrice.toString())
@@ -261,14 +241,35 @@ export class TradeService {
       });
 
       return {
-        trade_id: trade.id,
-        tokens_received: asAmountString(tokensReceived),
-        pool_deposit: asAmountString(poolDeposit),
-        donation: asAmountString(donation),
-        new_token_price: asAmountString(price),
-        new_supply: asAmountString(newSupply)
+        result: {
+          trade_id: trade.id,
+          tokens_received: asAmountString(tokensReceived),
+          pool_deposit: asAmountString(poolDeposit),
+          donation: asAmountString(donation),
+          new_token_price: asAmountString(price),
+          new_supply: asAmountString(newSupply)
+        },
+        // Carry event payload out of the transaction so the emit happens after
+        // commit — PriceHistoryListener writes outside the atomic trade boundary.
+        eventPayload: {
+          tradeId: trade.id,
+          athleteId: athlete.id,
+          investorId: investor.id,
+          type: "BUY" as const,
+          newPrice: price,
+          newSupply
+        }
       };
     });
+
+    /**
+     * Observer Pattern — emit "trade:completed" after the transaction commits.
+     * TradeService has zero knowledge of who listens. PriceHistoryListener,
+     * future WebSocketServer, and LeaderboardService all subscribe via the bus.
+     */
+    marketEventBus.emitTradeCompleted(eventPayload);
+
+    return result;
   }
 
   public async executeSell(input: SellTradeInput) {
@@ -293,7 +294,7 @@ export class TradeService {
 
     await this.guard.assertMarketOpen(input.athleteId);
 
-    return prisma.$transaction(async (tx) => {
+    const { result, eventPayload } = await prisma.$transaction(async (tx) => {
       const investor = await tx.investor.findUnique({ where: { id: input.investorId } });
       const athlete = await tx.athlete.findUnique({ where: { id: input.athleteId }, include: { token: true } });
 
@@ -302,12 +303,7 @@ export class TradeService {
       }
 
       const portfolio = await tx.portfolio.findUnique({
-        where: {
-          investorId_athleteId: {
-            investorId: investor.id,
-            athleteId: athlete.id
-          }
-        }
+        where: { investorId_athleteId: { investorId: investor.id, athleteId: athlete.id } }
       });
 
       if (!portfolio) {
@@ -368,17 +364,13 @@ export class TradeService {
           currentSupply: new Prisma.Decimal(newSupply.toString()),
           currentPrice: new Prisma.Decimal(newPrice.toString()),
           poolBalance: new Prisma.Decimal(newPoolBalance.toString()),
-          version: {
-            increment: 1
-          }
+          version: { increment: 1 }
         }
       });
 
       if (tokenUpdate.count !== 1) {
         throw new ApiError(409, "Concurrent token update detected");
       }
-
-      await appendPriceHistoryPoint(tx, athlete.id, new Prisma.Decimal(newPrice.toString()));
 
       await tx.investor.update({
         where: { id: investor.id },
@@ -388,12 +380,7 @@ export class TradeService {
       const newHeld = quantize(currentHeld.sub(tokenAmount));
 
       await tx.portfolio.update({
-        where: {
-          investorId_athleteId: {
-            investorId: investor.id,
-            athleteId: athlete.id
-          }
-        },
+        where: { investorId_athleteId: { investorId: investor.id, athleteId: athlete.id } },
         data: {
           tokensHeld: new Prisma.Decimal(newHeld.toString()),
           avgBuyPrice: new Prisma.Decimal(newHeld.eq(0) ? "0" : portfolio.avgBuyPrice.toString())
@@ -453,12 +440,26 @@ export class TradeService {
       });
 
       return {
-        trade_id: trade.id,
-        inr_received: asAmountString(sellProceeds),
-        new_token_price: asAmountString(newPrice),
-        new_supply: asAmountString(newSupply)
+        result: {
+          trade_id: trade.id,
+          inr_received: asAmountString(sellProceeds),
+          new_token_price: asAmountString(newPrice),
+          new_supply: asAmountString(newSupply)
+        },
+        eventPayload: {
+          tradeId: trade.id,
+          athleteId: athlete.id,
+          investorId: investor.id,
+          type: "SELL" as const,
+          newPrice,
+          newSupply
+        }
       };
     });
+
+    marketEventBus.emitTradeCompleted(eventPayload);
+
+    return result;
   }
 
   public async getHistory(investorId: string, page: number, limit: number, athleteId?: string) {

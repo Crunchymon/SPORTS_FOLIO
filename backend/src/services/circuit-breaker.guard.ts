@@ -3,8 +3,9 @@ import { env } from "../config/env";
 import { redis } from "../lib/redis";
 import { D, asAmountString } from "../utils/decimal";
 import { ApiError } from "../utils/errors";
+import { ICircuitBreakerGuard } from "./interfaces/ICircuitBreakerGuard";
 
-export class CircuitBreakerGuard {
+export class CircuitBreakerGuard implements ICircuitBreakerGuard {
   private readonly maxTradePct = D(env.MAX_TRADE_SIZE_PCT).div(100);
   private readonly poolDrainPct = D(env.POOL_DRAIN_GUARD_PCT).div(100);
 

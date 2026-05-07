@@ -22,7 +22,7 @@
 
 ## Sequence Diagram
 
-<img width="1080" alt="Sequence Diagram" src="https://github.com/user-attachments/assets/744e6ed1-ab80-41c5-8f24-832baaa07ddd" />
+<img width="1186" height="711" alt="Screenshot 2026-05-07 at 10 20 03 AM" src="https://github.com/user-attachments/assets/07d70a1c-24c0-4251-8f08-d3581b09b224" />
 
 ---
 
